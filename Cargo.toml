@@ -19,9 +19,7 @@ nom = "^2.0"
 byteorder = "^0.5"
 slab = "^0.3"
 rotor = "^0.6"
-
-[dependencies.bytes]
-git = "https://github.com/carllerche/bytes"
+bytes = { git = "https://github.com/carllerche/bytes", rev = "53d1c78" }
 
 [dev-dependencies]
 env_logger = "^0.3"
