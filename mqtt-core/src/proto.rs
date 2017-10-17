@@ -3,6 +3,7 @@ use std::ops::Deref;
 
 use rand::{thread_rng, Rng};
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! const_enum {
     ($name:ty : $repr:ty) => {
@@ -22,6 +23,7 @@ macro_rules! const_enum {
 
 pub const DEFAULT_MQTT_LEVEL: u8 = 4;
 
+/// MQTT Protocol name and level
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
@@ -48,9 +50,9 @@ impl Default for Protocol {
     }
 }
 
+/// Quality of Service levels
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Quality of Service levels
 pub enum QoS {
     /// At most once delivery
     ///
@@ -74,6 +76,7 @@ pub enum QoS {
 
 const_enum!(QoS: u8);
 
+/// A unique Client identifier for the Client
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct ClientId(String);
 
@@ -102,10 +105,3 @@ impl Display for ClientId {
 }
 
 pub type PacketId = u16;
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Message<'a> {
-    pub topic: &'a str,
-    pub payload: &'a [u8],
-    pub qos: QoS,
-}

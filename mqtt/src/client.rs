@@ -8,6 +8,13 @@ use core::*;
 use transport::{self, Transport};
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct Message<'a> {
+    pub topic: &'a str,
+    pub payload: &'a [u8],
+    pub qos: QoS,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 enum Waiting<'a> {
     PublishAck {
         packet_id: PacketId,
