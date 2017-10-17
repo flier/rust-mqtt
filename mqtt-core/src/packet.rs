@@ -62,7 +62,7 @@ impl ConnectReturnCode {
 #[derive(Debug, PartialEq, Clone)]
 pub struct FixedHeader {
     /// MQTT Control Packet type
-    pub packet_type: u8,
+    pub packet_type: PacketType,
     /// Flags specific to each MQTT Control Packet type
     pub packet_flags: u8,
     /// the number of bytes remaining within the current packet,
@@ -186,22 +186,22 @@ pub enum Packet<'a> {
 impl<'a> Packet<'a> {
     #[inline]
     /// MQTT Control Packet type
-    pub fn packet_type(&self) -> u8 {
+    pub fn packet_type(&self) -> PacketType {
         match *self {
-            Packet::Connect { .. } => CONNECT,
-            Packet::ConnectAck { .. } => CONNACK,
-            Packet::Publish { .. } => PUBLISH,
-            Packet::PublishAck { .. } => PUBACK,
-            Packet::PublishReceived { .. } => PUBREC,
-            Packet::PublishRelease { .. } => PUBREL,
-            Packet::PublishComplete { .. } => PUBCOMP,
-            Packet::Subscribe { .. } => SUBSCRIBE,
-            Packet::SubscribeAck { .. } => SUBACK,
-            Packet::Unsubscribe { .. } => UNSUBSCRIBE,
-            Packet::UnsubscribeAck { .. } => UNSUBACK,
-            Packet::PingRequest => PINGREQ,
-            Packet::PingResponse => PINGRESP,
-            Packet::Disconnect => DISCONNECT,
+            Packet::Connect { .. } => PacketType::CONNECT,
+            Packet::ConnectAck { .. } => PacketType::CONNACK,
+            Packet::Publish { .. } => PacketType::PUBLISH,
+            Packet::PublishAck { .. } => PacketType::PUBACK,
+            Packet::PublishReceived { .. } => PacketType::PUBREC,
+            Packet::PublishRelease { .. } => PacketType::PUBREL,
+            Packet::PublishComplete { .. } => PacketType::PUBCOMP,
+            Packet::Subscribe { .. } => PacketType::SUBSCRIBE,
+            Packet::SubscribeAck { .. } => PacketType::SUBACK,
+            Packet::Unsubscribe { .. } => PacketType::UNSUBSCRIBE,
+            Packet::UnsubscribeAck { .. } => PacketType::UNSUBACK,
+            Packet::PingRequest => PacketType::PINGREQ,
+            Packet::PingResponse => PacketType::PINGRESP,
+            Packet::Disconnect => PacketType::DISCONNECT,
         }
     }
 
@@ -231,17 +231,24 @@ impl<'a> Packet<'a> {
     }
 }
 
-pub const CONNECT: u8 = 1;
-pub const CONNACK: u8 = 2;
-pub const PUBLISH: u8 = 3;
-pub const PUBACK: u8 = 4;
-pub const PUBREC: u8 = 5;
-pub const PUBREL: u8 = 6;
-pub const PUBCOMP: u8 = 7;
-pub const SUBSCRIBE: u8 = 8;
-pub const SUBACK: u8 = 9;
-pub const UNSUBSCRIBE: u8 = 10;
-pub const UNSUBACK: u8 = 11;
-pub const PINGREQ: u8 = 12;
-pub const PINGRESP: u8 = 13;
-pub const DISCONNECT: u8 = 14;
+#[repr(u8)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub enum PacketType {
+    /// Client request to connect to Server
+    CONNECT = 1,
+    CONNACK = 2,
+    PUBLISH = 3,
+    PUBACK = 4,
+    PUBREC = 5,
+    PUBREL = 6,
+    PUBCOMP = 7,
+    SUBSCRIBE = 8,
+    SUBACK = 9,
+    UNSUBSCRIBE = 10,
+    UNSUBACK = 11,
+    PINGREQ = 12,
+    PINGRESP = 13,
+    DISCONNECT = 14,
+}
+
+const_enum!(PacketType: u8);

@@ -11,7 +11,6 @@ pub const UNSUPPORT_LEVEL: u32 = 0x0002;
 pub const RESERVED_FLAG: u32 = 0x0003;
 pub const INVALID_CLIENT_ID: u32 = 0x0004;
 pub const INVALID_LENGTH: u32 = 0x0005;
-pub const UNSUPPORT_PACKET_TYPE: u32 = 0x0100;
 
 macro_rules! error_if (
   ($i:expr, $cond:expr, $code:expr) => (
@@ -59,7 +58,7 @@ named!(pub decode_fixed_header<FixedHeader>, do_parse!(
     remaining_length: decode_variable_length_usize >>
     (
         FixedHeader {
-            packet_type: b0.0,
+            packet_type: b0.0.into(),
             packet_flags: b0.1,
             remaining_length: remaining_length,
         }
@@ -165,9 +164,9 @@ named!(pub decode_unsubscribe_header<Packet>, do_parse!(
 
 
 fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[u8], Packet> {
-    match fixed_header.packet_type {
-        CONNECT => decode_connect_header(i),
-        CONNACK => {
+    match fixed_header.packet_type.into() {
+        PacketType::CONNECT => decode_connect_header(i),
+        PacketType::CONNACK => {
             decode_connect_ack_header(i).map(|(flags, return_code)| {
                 Packet::ConnectAck {
                     session_present: is_flag_set!(flags.bits(), ConnectAckFlags::SESSION_PRESENT),
@@ -175,7 +174,7 @@ fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[
                 }
             })
         }
-        PUBLISH => {
+        PacketType::PUBLISH => {
             let dup = (fixed_header.packet_flags & 0b1000) == 0b1000;
             let qos = QoS::from((fixed_header.packet_flags & 0b0110) >> 1);
             let retain = (fixed_header.packet_flags & 0b0001) == 0b0001;
@@ -205,24 +204,29 @@ fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[
                 Incomplete(needed) => Incomplete(needed),
             }
         }
-        PUBACK => be_u16(i).map(|packet_id| Packet::PublishAck { packet_id: packet_id }),
-        PUBREC => be_u16(i).map(|packet_id| Packet::PublishReceived { packet_id: packet_id }),
-        PUBREL => be_u16(i).map(|packet_id| Packet::PublishRelease { packet_id: packet_id }),
-        PUBCOMP => be_u16(i).map(|packet_id| Packet::PublishComplete { packet_id: packet_id }),
-
-        SUBSCRIBE => decode_subscribe_header(i),
-        SUBACK => decode_subscribe_ack_header(i),
-        UNSUBSCRIBE => decode_unsubscribe_header(i),
-        UNSUBACK => be_u16(i).map(|packet_id| Packet::UnsubscribeAck { packet_id: packet_id }),
-
-        PINGREQ => Done(i, Packet::PingRequest),
-        PINGRESP => Done(i, Packet::PingResponse),
-        DISCONNECT => Done(i, Packet::Disconnect),
-        _ => {
-            let err_code = UNSUPPORT_PACKET_TYPE + (fixed_header.packet_type as u32);
-
-            Error(error_position!(ErrorKind::Custom(err_code), i))
+        PacketType::PUBACK => {
+            be_u16(i).map(|packet_id| Packet::PublishAck { packet_id: packet_id })
         }
+        PacketType::PUBREC => {
+            be_u16(i).map(|packet_id| Packet::PublishReceived { packet_id: packet_id })
+        }
+        PacketType::PUBREL => {
+            be_u16(i).map(|packet_id| Packet::PublishRelease { packet_id: packet_id })
+        }
+        PacketType::PUBCOMP => {
+            be_u16(i).map(|packet_id| Packet::PublishComplete { packet_id: packet_id })
+        }
+
+        PacketType::SUBSCRIBE => decode_subscribe_header(i),
+        PacketType::SUBACK => decode_subscribe_ack_header(i),
+        PacketType::UNSUBSCRIBE => decode_unsubscribe_header(i),
+        PacketType::UNSUBACK => {
+            be_u16(i).map(|packet_id| Packet::UnsubscribeAck { packet_id: packet_id })
+        }
+
+        PacketType::PINGREQ => Done(i, Packet::PingRequest),
+        PacketType::PINGRESP => Done(i, Packet::PingResponse),
+        PacketType::DISCONNECT => Done(i, Packet::Disconnect),
     }
 }
 
@@ -238,7 +242,7 @@ named!(pub decode_packet<Packet>, do_parse!(
 /// Extends `AsRef<[u8]>` with methods for reading packet.
 ///
 /// ```
-/// use mqtt::{ReadPacketExt, Packet};
+/// use mqtt_core::{ReadPacketExt, Packet};
 ///
 /// assert_eq!(b"\xd0\x00".read_packet().unwrap(), Packet::PingResponse);
 /// ```
@@ -255,7 +259,7 @@ impl<T: AsRef<[u8]>> ReadPacketExt for T {}
 /// Read packet from the underlying `&[u8]`.
 ///
 /// ```
-/// use mqtt::{read_packet, Packet};
+/// use mqtt_core::{read_packet, Packet};
 ///
 /// assert_eq!(read_packet(b"\xc0\x00\xd0\x00").unwrap(), (&b"\xd0\x00"[..], Packet::PingRequest));
 /// ```
@@ -274,7 +278,6 @@ mod tests {
     use nom::{Needed, ErrorKind};
     use nom::IResult::{Done, Incomplete, Error};
 
-    use packet::*;
     use super::*;
 
     #[test]
@@ -317,7 +320,7 @@ mod tests {
             Done(
                 &b""[..],
                 FixedHeader {
-                    packet_type: CONNACK,
+                    packet_type: PacketType::CONNACK,
                     packet_flags: 0,
                     remaining_length: 127,
                 },
@@ -329,7 +332,7 @@ mod tests {
             Done(
                 &b""[..],
                 FixedHeader {
-                    packet_type: PUBLISH,
+                    packet_type: PacketType::PUBLISH,
                     packet_flags: 0x0C,
                     remaining_length: 16258,
                 },

@@ -13,7 +13,7 @@ pub trait WritePacketHelper: io::Write {
         let content_size = self.calc_content_size(packet);
 
         debug!(
-            "write FixedHeader {{ type={}, flags={}, remaining_length={} }} ",
+            "write FixedHeader {{ type={:?}, flags={}, remaining_length={} }} ",
             packet.packet_type(),
             packet.packet_flags(),
             content_size
@@ -21,7 +21,10 @@ pub trait WritePacketHelper: io::Write {
 
         Ok(
             self.write(
-                &[(packet.packet_type() << 4) | packet.packet_flags()],
+                &[
+                    ((packet.packet_type() as u8) << 4) |
+                        packet.packet_flags(),
+                ],
             )? + self.write_variable_length(content_size)?,
         )
     }
@@ -295,7 +298,7 @@ pub trait WritePacketHelper: io::Write {
 /// Extends `Write` with methods for writing packet.
 ///
 /// ```
-/// use mqtt::{WritePacketExt, Packet};
+/// use mqtt_core::{WritePacketExt, Packet};
 ///
 /// let mut v = Vec::new();
 /// let p = Packet::PingResponse;

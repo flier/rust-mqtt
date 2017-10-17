@@ -388,7 +388,7 @@ impl<'a, T: Transport, H: 'a + Handler> transport::Handler<'a> for Client<'a, T,
                 debug!("received ping response");
             }
             _ => {
-                warn!("unexpected packet {}", packet.packet_type());
+                warn!("unexpected packet {:?}", packet.packet_type());
             }
         }
     }
