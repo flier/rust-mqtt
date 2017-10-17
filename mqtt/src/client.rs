@@ -4,8 +4,7 @@ use std::time::Duration;
 use slab::Slab;
 
 use error::*;
-use proto::*;
-use packet::*;
+use core::*;
 use transport::{self, Transport};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -83,8 +82,8 @@ impl<'a, H: Handler> Session<'a, H> {
     fn delivery_retry(&mut self) -> Vec<Packet<'a>> {
         self.waiting_reply
             .iter()
-            .map(|ref waiting| match *waiting {
-                &Waiting::PublishAck { packet_id, ref msg } => {
+            .map(|(_, waiting)| match *waiting {
+                Waiting::PublishAck { packet_id, ref msg } => {
                     Packet::Publish {
                         dup: false,
                         retain: false,
@@ -94,10 +93,10 @@ impl<'a, H: Handler> Session<'a, H> {
                         payload: msg.payload,
                     }
                 }
-                &Waiting::PublishComplete { packet_id } => {
+                Waiting::PublishComplete { packet_id } => {
                     Packet::PublishRelease { packet_id: packet_id }
                 }
-                &Waiting::SubscribeAck {
+                Waiting::SubscribeAck {
                     packet_id,
                     ref topic_filters,
                 } => {
@@ -106,7 +105,7 @@ impl<'a, H: Handler> Session<'a, H> {
                         topic_filters: From::from(*topic_filters),
                     }
                 }
-                &Waiting::UnsubscribeAck {
+                Waiting::UnsubscribeAck {
                     packet_id,
                     ref topic_filters,
                 } => {
@@ -134,45 +133,42 @@ impl<'a, H: Handler> Session<'a, H> {
             qos: msg.qos,
             topic: msg.topic,
             packet_id: match msg.qos {
-                QoS::AtLeastOnce | QoS::ExactlyOnce => self.wait_reply(msg.clone()),
+                QoS::AtLeastOnce | QoS::ExactlyOnce => Some(self.wait_reply(msg.clone())),
                 _ => None,
             },
             payload: msg.payload,
         }
     }
 
-    fn wait_reply(&mut self, msg: Rc<Message<'a>>) -> Option<PacketId> {
-        if let Some(entry) = self.waiting_reply.vacant_entry() {
-            let packet_id = entry.index() as PacketId;
+    fn wait_reply(&mut self, msg: Rc<Message<'a>>) -> PacketId {
+        let entry = self.waiting_reply.vacant_entry();
+        let packet_id = entry.key() as PacketId;
 
-            Some(entry
-                .insert(Waiting::PublishAck {
-                    packet_id: packet_id,
-                    msg: msg.clone(),
-                })
-                .index() as PacketId)
-        } else {
-            warn!("too many message waiting ack, downgrade to QoS level 0");
+        entry.insert(Waiting::PublishAck {
+            packet_id: packet_id,
+            msg: msg.clone(),
+        });
 
-            None
-        }
+        packet_id
     }
 
     fn on_publish_ack(&mut self, packet_id: PacketId) -> Option<Packet<'a>> {
-        if let Some(_) = self.waiting_reply.remove(packet_id as usize) {
+        if self.waiting_reply.contains(packet_id as usize) {
             debug!("message {} acknowledged", packet_id);
+
+            self.waiting_reply.remove(packet_id as usize);
         } else {
-            warn!("unexpected packet id {}", packet_id)
+            warn!("unexpected packet id {}", packet_id);
         }
 
         None
     }
 
     fn on_publish_received(&mut self, packet_id: PacketId) -> Option<Packet<'a>> {
-        if let Some(mut entry) = self.waiting_reply.entry(packet_id as usize) {
+        if let Some(entry) = self.waiting_reply.get_mut(packet_id as usize) {
             debug!("message {} received at server side", packet_id);
 
-            entry.replace(Waiting::PublishComplete { packet_id: packet_id });
+            *entry = Waiting::PublishComplete { packet_id: packet_id };
 
             Some(Packet::PublishRelease { packet_id: packet_id })
         } else {
@@ -183,8 +179,10 @@ impl<'a, H: Handler> Session<'a, H> {
     }
 
     fn on_publish_complete(&mut self, packet_id: PacketId) -> Option<Packet<'a>> {
-        if let Some(_) = self.waiting_reply.remove(packet_id as usize) {
+        if self.waiting_reply.contains(packet_id as usize) {
             debug!("message {} completed", packet_id);
+
+            self.waiting_reply.remove(packet_id as usize);
         } else {
             warn!("unexpected packet id {}", packet_id)
         }
@@ -216,28 +214,23 @@ impl<'a, H: Handler> Session<'a, H> {
         Some(Packet::PublishComplete { packet_id: packet_id })
     }
 
-    pub fn subscribe(&mut self, topic_filters: &'a [(&'a str, QoS)]) -> Option<Packet<'a>> {
-        if let Some(entry) = self.waiting_reply.vacant_entry() {
-            let packet_id = entry.index() as PacketId;
+    pub fn subscribe(&mut self, topic_filters: &'a [(&'a str, QoS)]) -> Packet<'a> {
+        let entry = self.waiting_reply.vacant_entry();
+        let packet_id = entry.key() as PacketId;
 
-            entry.insert(Waiting::SubscribeAck {
-                packet_id: packet_id,
-                topic_filters: topic_filters,
-            });
+        entry.insert(Waiting::SubscribeAck {
+            packet_id: packet_id,
+            topic_filters: topic_filters,
+        });
 
-            Some(Packet::Subscribe {
-                packet_id: packet_id,
-                topic_filters: From::from(topic_filters),
-            })
-        } else {
-            warn!("too many message waiting ack, downgrade to QoS level 0");
-
-            None
+        Packet::Subscribe {
+            packet_id: packet_id,
+            topic_filters: From::from(topic_filters),
         }
     }
 
     fn on_subscribe_ack(&mut self, packet_id: PacketId, status: &[SubscribeReturnCode]) {
-        if let Some(Waiting::SubscribeAck { topic_filters, .. }) =
+        if let Waiting::SubscribeAck { topic_filters, .. } =
             self.waiting_reply.remove(packet_id as usize)
         {
             debug!("subscribe {} acked", packet_id);
@@ -254,28 +247,23 @@ impl<'a, H: Handler> Session<'a, H> {
         }
     }
 
-    pub fn unsubscribe(&mut self, topic_filters: &'a [&'a str]) -> Option<Packet<'a>> {
-        if let Some(entry) = self.waiting_reply.vacant_entry() {
-            let packet_id = entry.index() as PacketId;
+    pub fn unsubscribe(&mut self, topic_filters: &'a [&'a str]) -> Packet<'a> {
+        let entry = self.waiting_reply.vacant_entry();
+        let packet_id = entry.key() as PacketId;
 
-            entry.insert(Waiting::UnsubscribeAck {
-                packet_id: packet_id,
-                topic_filters: topic_filters,
-            });
+        entry.insert(Waiting::UnsubscribeAck {
+            packet_id: packet_id,
+            topic_filters: topic_filters,
+        });
 
-            Some(Packet::Unsubscribe {
-                packet_id: packet_id,
-                topic_filters: From::from(topic_filters),
-            })
-        } else {
-            warn!("too many message waiting ack, downgrade to QoS level 0");
-
-            None
+        Packet::Unsubscribe {
+            packet_id: packet_id,
+            topic_filters: From::from(topic_filters),
         }
     }
 
     fn on_unsubscribe_ack(&mut self, packet_id: PacketId) {
-        if let Some(Waiting::UnsubscribeAck { topic_filters, .. }) =
+        if let Waiting::UnsubscribeAck { topic_filters, .. } =
             self.waiting_reply.remove(packet_id as usize)
         {
             debug!("unsubscribe {} acked", packet_id);

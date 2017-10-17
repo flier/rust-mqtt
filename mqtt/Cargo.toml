@@ -1,0 +1,25 @@
+[package]
+name = "mqtt"
+version = "0.2.0"
+authors = ["Flier Lu <flier.lu@gmail.com>"]
+description = "MQTT protocol v3 implementation"
+documentation = "https://docs.rs/mqtt"
+homepage = "https://github.com/flier/rust-mqtt"
+repository = "https://github.com/flier/rust-mqtt.git"
+keywords = ["MQTT", "IoT", "messaging"]
+license = "MIT/Apache-2.0"
+
+[dependencies]
+log = "^0.3"
+error-chain = "^0.11"
+bytes = "^0.4"
+nom = "^3.2"
+slab = "^0.4"
+rotor = "^0.6"
+
+mqtt-core = { version = "*", path = "../mqtt-core" }
+
+[dev-dependencies]
+env_logger = "^0.4"
+clap = "^2"
+mio = "^0.6"

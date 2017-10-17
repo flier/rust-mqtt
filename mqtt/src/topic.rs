@@ -116,13 +116,13 @@ impl Topic {
             .iter()
             .position(|level| !level.is_valid())
             .or_else(|| {
-                self.0.iter().enumerate().position(|(pos, level)| {
-                    match *level {
+                self.0.iter().enumerate().position(
+                    |(pos, level)| match *level {
                         Level::MultiWildcard => pos != self.0.len() - 1,
                         Level::Metadata(_) => pos != 0,
                         _ => false,
-                    }
-                })
+                    },
+                )
             })
             .is_none()
     }
@@ -281,12 +281,10 @@ impl FromStr for Topic {
             .map(|level| Level::from_str(level))
             .collect::<Result<Vec<_>>>()
             .map(|levels| Topic(levels))
-            .and_then(|topic| {
-                if topic.is_valid() {
-                    Ok(topic)
-                } else {
-                    bail!(InvalidTopic)
-                }
+            .and_then(|topic| if topic.is_valid() {
+                Ok(topic)
+            } else {
+                bail!(InvalidTopic)
             })
     }
 }
@@ -415,15 +413,15 @@ struct State {
 
 #[derive(Debug)]
 pub struct TopicTree {
-    topics: Slab<Topic, TopicIdx>,
-    states: Slab<State, StateIdx>,
+    topics: Slab<Topic>,
+    states: Slab<State>,
     root: StateIdx,
 }
 
 impl TopicTree {
     pub fn new() -> TopicTree {
         let mut states = Slab::with_capacity(64);
-        let root = states.insert(Default::default()).ok().unwrap();
+        let root = states.insert(Default::default());
 
         TopicTree {
             topics: Slab::with_capacity(64),
@@ -444,15 +442,10 @@ impl TopicTree {
 
     pub fn add(&mut self, topic: &Topic) {
         let mut cur_state = self.root;
-        let topic_idx = self.topics.iter().position(|ref t| **t == *topic).unwrap_or_else(|| {
-            if !self.topics.has_available() {
-                let cap = self.topics.capacity();
-
-                self.topics.reserve_exact(cap);
-            }
-
-            self.topics.vacant_entry().map(|entry| entry.insert(topic.clone()).index()).unwrap()
-        });
+        let topic_idx = self.topics
+            .iter()
+            .position(|(_, t)| t == topic)
+            .unwrap_or_else(|| self.topics.insert(topic.clone()));
 
         for level in topic.0.iter() {
             match *level {
@@ -464,7 +457,10 @@ impl TopicTree {
                         None => {
                             let next_state = self.add_state();
 
-                            self.states[cur_state].next.insert(level.clone(), next_state);
+                            self.states[cur_state].next.insert(
+                                level.clone(),
+                                next_state,
+                            );
 
                             cur_state = next_state;
                         }
@@ -497,16 +493,7 @@ impl TopicTree {
 
     #[inline]
     fn add_state(&mut self) -> StateIdx {
-        if !self.states.has_available() {
-            let cap = self.states.capacity();
-
-            self.states.reserve_exact(cap);
-        }
-
-        self.states
-            .vacant_entry()
-            .map(|entry| entry.insert(Default::default()).index())
-            .unwrap()
+        self.states.insert(Default::default())
     }
 
     pub fn match_topic(&self, topic: &Topic) -> Option<Vec<&Topic>> {
@@ -580,42 +567,65 @@ mod tests {
 
     #[test]
     fn test_valid_topic() {
-        assert!(Topic(vec![Level::normal("sport"),
-                           Level::normal("tennis"),
-                           Level::normal("player1")])
-            .is_valid());
+        assert!(
+            Topic(vec![
+                Level::normal("sport"),
+                Level::normal("tennis"),
+                Level::normal("player1"),
+            ]).is_valid()
+        );
 
-        assert!(Topic(vec![Level::normal("sport"), Level::normal("tennis"), Level::MultiWildcard])
-            .is_valid());
-        assert!(Topic(vec![Level::metadata("$SYS"),
-                           Level::normal("tennis"),
-                           Level::MultiWildcard])
-            .is_valid());
+        assert!(
+            Topic(vec![
+                Level::normal("sport"),
+                Level::normal("tennis"),
+                Level::MultiWildcard,
+            ]).is_valid()
+        );
+        assert!(
+            Topic(vec![
+                Level::metadata("$SYS"),
+                Level::normal("tennis"),
+                Level::MultiWildcard,
+            ]).is_valid()
+        );
 
-        assert!(Topic(vec![Level::normal("sport"),
-                           Level::SingleWildcard,
-                           Level::normal("player1")])
-            .is_valid());
+        assert!(
+            Topic(vec![
+                Level::normal("sport"),
+                Level::SingleWildcard,
+                Level::normal("player1"),
+            ]).is_valid()
+        );
 
-        assert!(!Topic(vec![Level::normal("sport"),
-                            Level::MultiWildcard,
-                            Level::normal("player1")])
-            .is_valid());
-        assert!(!Topic(vec![Level::normal("sport"),
-                            Level::metadata("$SYS"),
-                            Level::normal("player1")])
-            .is_valid());
+        assert!(!Topic(vec![
+            Level::normal("sport"),
+            Level::MultiWildcard,
+            Level::normal("player1"),
+        ]).is_valid());
+        assert!(!Topic(vec![
+            Level::normal("sport"),
+            Level::metadata("$SYS"),
+            Level::normal("player1"),
+        ]).is_valid());
     }
 
     #[test]
     fn test_parse_topic() {
-        assert_eq!(topic!("sport/tennis/player1"),
-                   vec![Level::normal("sport"), Level::normal("tennis"), Level::normal("player1")]
-                       .into());
+        assert_eq!(
+            topic!("sport/tennis/player1"),
+            vec![
+                Level::normal("sport"),
+                Level::normal("tennis"),
+                Level::normal("player1"),
+            ].into()
+        );
 
         assert_eq!(topic!(""), Topic(vec![Level::Blank]));
-        assert_eq!(topic!("/finance"),
-                   vec![Level::Blank, Level::normal("finance")].into());
+        assert_eq!(
+            topic!("/finance"),
+            vec![Level::Blank, Level::normal("finance")].into()
+        );
 
         assert_eq!(topic!("$SYS"), vec![Level::metadata("$SYS")].into());
 
@@ -624,9 +634,14 @@ mod tests {
 
     #[test]
     fn test_multi_wildcard_topic() {
-        assert_eq!(topic!("sport/tennis/#"),
-                   vec![Level::normal("sport"), Level::normal("tennis"), Level::MultiWildcard]
-                       .into());
+        assert_eq!(
+            topic!("sport/tennis/#"),
+            vec![
+                Level::normal("sport"),
+                Level::normal("tennis"),
+                Level::MultiWildcard,
+            ].into()
+        );
 
         assert_eq!(topic!("#"), vec![Level::MultiWildcard].into());
 
@@ -638,13 +653,23 @@ mod tests {
     fn test_single_wildcard_topic() {
         assert_eq!(topic!("+"), vec![Level::SingleWildcard].into());
 
-        assert_eq!(topic!("+/tennis/#"),
-                   vec![Level::SingleWildcard, Level::normal("tennis"), Level::MultiWildcard]
-                       .into());
+        assert_eq!(
+            topic!("+/tennis/#"),
+            vec![
+                Level::SingleWildcard,
+                Level::normal("tennis"),
+                Level::MultiWildcard,
+            ].into()
+        );
 
-        assert_eq!(topic!("sport/+/player1"),
-                   vec![Level::normal("sport"), Level::SingleWildcard, Level::normal("player1")]
-                       .into());
+        assert_eq!(
+            topic!("sport/+/player1"),
+            vec![
+                Level::normal("sport"),
+                Level::SingleWildcard,
+                Level::normal("player1"),
+            ].into()
+        );
 
         assert!("sport+".parse::<Topic>().is_err());
     }
@@ -652,7 +677,11 @@ mod tests {
     #[test]
     fn test_write_topic() {
         let mut v = vec![];
-        let t = vec![Level::SingleWildcard, Level::normal("tennis"), Level::MultiWildcard].into();
+        let t = vec![
+            Level::SingleWildcard,
+            Level::normal("tennis"),
+            Level::MultiWildcard,
+        ].into();
 
         assert_eq!(v.write_topic(&t).unwrap(), 10);
         assert_eq!(v, b"+/tennis/#");
@@ -690,21 +719,33 @@ mod tests {
         assert!(!"/finance".match_topic(&"+".parse().unwrap()));
 
         assert!(!"$SYS".match_topic(&"#".parse().unwrap()));
-        assert!(!"$SYS/monitor/Clients".match_topic(&"+/monitor/Clients".parse().unwrap()));
+        assert!(!"$SYS/monitor/Clients".match_topic(
+            &"+/monitor/Clients".parse().unwrap(),
+        ));
         assert!("$SYS/".match_topic(&"$SYS/#".parse().unwrap()));
-        assert!("$SYS/monitor/Clients".match_topic(&"$SYS/monitor/+".parse().unwrap()));
+        assert!("$SYS/monitor/Clients".match_topic(
+            &"$SYS/monitor/+".parse().unwrap(),
+        ));
     }
 
     #[test]
     fn test_operators() {
-        assert_eq!(Level::normal("sport") / Level::normal("tennis") / Level::normal("player1"),
-                   "sport/tennis/player1".parse().unwrap());
-        assert_eq!(topic!("sport/tennis") / Level::normal("player1"),
-                   "sport/tennis/player1".parse().unwrap());
-        assert_eq!(Level::normal("sport") / topic!("tennis/player1"),
-                   "sport/tennis/player1".parse().unwrap());
-        assert_eq!(topic!("sport/tennis") / topic!("player1/ranking"),
-                   "sport/tennis/player1/ranking".parse().unwrap());
+        assert_eq!(
+            Level::normal("sport") / Level::normal("tennis") / Level::normal("player1"),
+            "sport/tennis/player1".parse().unwrap()
+        );
+        assert_eq!(
+            topic!("sport/tennis") / Level::normal("player1"),
+            "sport/tennis/player1".parse().unwrap()
+        );
+        assert_eq!(
+            Level::normal("sport") / topic!("tennis/player1"),
+            "sport/tennis/player1".parse().unwrap()
+        );
+        assert_eq!(
+            topic!("sport/tennis") / topic!("player1/ranking"),
+            "sport/tennis/player1/ranking".parse().unwrap()
+        );
 
         let mut t = topic!("sport/tennis");
 
@@ -719,45 +760,75 @@ mod tests {
 
     #[test]
     fn test_topic_tree() {
-        let tree = TopicTree::build(vec![topic!("sport/tennis/+"),
-                                         topic!("sport/tennis/player1"),
-                                         topic!("sport/tennis/player1/#"),
-                                         topic!("sport/#"),
-                                         topic!("sport/+"),
-                                         topic!("#"),
-                                         topic!("+"),
-                                         topic!("+/+"),
-                                         topic!("/+"),
-                                         topic!("$SYS/#"),
-                                         topic!("$SYS/monitor/+"),
-                                         topic!("+/monitor/Clients")]);
+        let tree = TopicTree::build(vec![
+            topic!("sport/tennis/+"),
+            topic!("sport/tennis/player1"),
+            topic!("sport/tennis/player1/#"),
+            topic!("sport/#"),
+            topic!("sport/+"),
+            topic!("#"),
+            topic!("+"),
+            topic!("+/+"),
+            topic!("/+"),
+            topic!("$SYS/#"),
+            topic!("$SYS/monitor/+"),
+            topic!("+/monitor/Clients"),
+        ]);
 
         assert_eq!(tree.topics.len(), 12);
         assert_eq!(tree.states.len(), 15);
 
-        assert_eq!(tree.match_topic(&topic!("sport/tennis/player1")),
-                   Some(vec![&topic!("#"),
-                             &topic!("sport/#"),
-                             &topic!("sport/tennis/player1/#"),
-                             &topic!("sport/tennis/player1"),
-                             &topic!("sport/tennis/+")]));
-        assert_eq!(tree.match_topic(&topic!("sport/tennis/player1/ranking")),
-                   Some(vec![&topic!("#"), &topic!("sport/#"), &topic!("sport/tennis/player1/#")]));
-        assert_eq!(tree.match_topic(&topic!("sport/tennis/player1/score/wimbledo")),
-                   Some(vec![&topic!("#"), &topic!("sport/#"), &topic!("sport/tennis/player1/#")]));
-        assert_eq!(tree.match_topic(&topic!("sport")),
-                   Some(vec![&topic!("#"), &topic!("sport/#"), &topic!("+")]));
-        assert_eq!(tree.match_topic(&topic!("sport/")),
-                   Some(vec![&topic!("#"),
-                             &topic!("sport/#"),
-                             &topic!("sport/+"),
-                             &topic!("+/+")]));
-        assert_eq!(tree.match_topic(&topic!("/finance")),
-                   Some(vec![&topic!("#"), &topic!("/+"), &topic!("+/+")]));
+        assert_eq!(
+            tree.match_topic(&topic!("sport/tennis/player1")),
+            Some(vec![
+                &topic!("#"),
+                &topic!("sport/#"),
+                &topic!("sport/tennis/player1/#"),
+                &topic!("sport/tennis/player1"),
+                &topic!("sport/tennis/+"),
+            ])
+        );
+        assert_eq!(
+            tree.match_topic(&topic!("sport/tennis/player1/ranking")),
+            Some(vec![
+                &topic!("#"),
+                &topic!("sport/#"),
+                &topic!("sport/tennis/player1/#"),
+            ])
+        );
+        assert_eq!(
+            tree.match_topic(&topic!("sport/tennis/player1/score/wimbledo")),
+            Some(vec![
+                &topic!("#"),
+                &topic!("sport/#"),
+                &topic!("sport/tennis/player1/#"),
+            ])
+        );
+        assert_eq!(
+            tree.match_topic(&topic!("sport")),
+            Some(vec![&topic!("#"), &topic!("sport/#"), &topic!("+")])
+        );
+        assert_eq!(
+            tree.match_topic(&topic!("sport/")),
+            Some(vec![
+                &topic!("#"),
+                &topic!("sport/#"),
+                &topic!("sport/+"),
+                &topic!("+/+"),
+            ])
+        );
+        assert_eq!(
+            tree.match_topic(&topic!("/finance")),
+            Some(vec![&topic!("#"), &topic!("/+"), &topic!("+/+")])
+        );
 
-        assert_eq!(tree.match_topic(&topic!("$SYS/monitor/Clients")),
-                   Some(vec![&topic!("$SYS/#"), &topic!("$SYS/monitor/+")]));
-        assert_eq!(tree.match_topic(&topic!("/monitor/Clients")),
-                   Some(vec![&topic!("#"), &topic!("+/monitor/Clients")]));
+        assert_eq!(
+            tree.match_topic(&topic!("$SYS/monitor/Clients")),
+            Some(vec![&topic!("$SYS/#"), &topic!("$SYS/monitor/+")])
+        );
+        assert_eq!(
+            tree.match_topic(&topic!("/monitor/Clients")),
+            Some(vec![&topic!("#"), &topic!("+/monitor/Clients")])
+        );
     }
 }
