@@ -10,12 +10,10 @@ matrix:
 os:
   - linux
   - osx
-
 env:
   global:
     - RUST_BACKTRACE=full
-
 script:
-  - cargo build --verbose
-  - cargo test --verbose
-
+  - cargo build --verbose --all
+  - cargo test --verbose --all
+cache: cargo
