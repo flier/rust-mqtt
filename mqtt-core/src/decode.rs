@@ -11,6 +11,7 @@ pub const UNSUPPORT_LEVEL: u32 = 0x0002;
 pub const RESERVED_FLAG: u32 = 0x0003;
 pub const INVALID_CLIENT_ID: u32 = 0x0004;
 pub const INVALID_LENGTH: u32 = 0x0005;
+pub const UNSUPPORT_PACKET_TYPE: u32 = 0x0100;
 
 macro_rules! error_if (
   ($i:expr, $cond:expr, $code:expr) => (
@@ -227,6 +228,10 @@ fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[
         PacketType::PINGREQ => Done(i, Packet::PingRequest),
         PacketType::PINGRESP => Done(i, Packet::PingResponse),
         PacketType::DISCONNECT => Done(i, Packet::Disconnect),
+        _ => {
+            let err_code = UNSUPPORT_PACKET_TYPE + (fixed_header.packet_type as u32);
+            Error(error_position!(ErrorKind::Custom(err_code), i))
+        }
     }
 }
 

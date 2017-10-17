@@ -231,24 +231,41 @@ impl<'a> Packet<'a> {
     }
 }
 
+/// MQTT Control Packet type
 #[repr(u8)]
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub enum PacketType {
+    RESERVED = 0,
     /// Client request to connect to Server
     CONNECT = 1,
+    /// Connect acknowledgment
     CONNACK = 2,
+    /// Publish message
     PUBLISH = 3,
+    /// Publish acknowledgment
     PUBACK = 4,
+    /// Publish received (assured delivery part 1)
     PUBREC = 5,
+    /// Publish release (assured delivery part 2)
     PUBREL = 6,
+    /// Publish complete (assured delivery part 3)
     PUBCOMP = 7,
+    /// Client subscribe request
     SUBSCRIBE = 8,
+    /// Subscribe acknowledgment
     SUBACK = 9,
+    /// Unsubscribe request
     UNSUBSCRIBE = 10,
+    /// Unsubscribe acknowledgment
     UNSUBACK = 11,
+    /// PING request
     PINGREQ = 12,
+    /// PING response
     PINGRESP = 13,
+    /// Client is disconnecting
     DISCONNECT = 14,
+    /// Reserved
+    RESERVED15 = 15,
 }
 
 const_enum!(PacketType: u8);
