@@ -207,6 +207,7 @@ fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[
         PUBREC => be_u16(i).map(|packet_id| Packet::PublishReceived { packet_id: packet_id }),
         PUBREL => be_u16(i).map(|packet_id| Packet::PublishRelease { packet_id: packet_id }),
         PUBCOMP => be_u16(i).map(|packet_id| Packet::PublishComplete { packet_id: packet_id }),
+
         SUBSCRIBE => decode_subscribe_header(i),
         SUBACK => decode_subscribe_ack_header(i),
         UNSUBSCRIBE => decode_unsubscribe_header(i),
@@ -227,7 +228,7 @@ named!(pub decode_packet<Packet>, do_parse!(
     fixed_header: decode_fixed_header >>
     packet: flat_map!(
         take!(fixed_header.remaining_length),
-        apply!(decode_variable_header, fixed_header)
+        complete!(apply!(decode_variable_header, fixed_header))
     ) >>
     ( packet )
 ));
@@ -456,6 +457,31 @@ mod tests {
 
         assert_eq!(decode_packet(b"\xb0\x02\x43\x21"),
                Done(&b""[..], Packet::UnsubscribeAck { packet_id: 0x4321 }));
+    }
+
+    macro_rules! assert_complete (
+        ($pkt:expr) => {{
+            assert_eq!($pkt, Error(ErrorKind::Complete));
+        }};
+    );
+
+    #[test]
+    fn test_invalid_subscribe_packets() {
+        // subscribe without subscription topics
+        assert_complete!(decode_packet(b"\x82\x02\x42\x42"));
+
+        // malformed/malicious subscribe packets:
+        // no QoS for topic filter
+        assert_complete!(decode_packet(b"\x82\x04\x42\x42\x00\x00"));
+        assert_complete!(decode_packet(b"\x82\x07\x42\x42\x00\x00\x00\x00\x00"));
+        // truncated string length prefix
+        assert_complete!(decode_packet(b"\x82\x03\x42\x42\x00"));
+
+        // unsubscribe without subscription topics
+        assert_complete!(decode_packet(b"\xa2\x02\x42\x42"));
+
+        // malformed/malicious unsubscribe packets: truncated string length prefix
+        assert_complete!(decode_packet(b"\xa2\x03\x42\x42\x00"));
     }
 
     #[test]
