@@ -20,8 +20,9 @@ pub mod transport;
 pub mod server;
 pub mod client;
 
-// http://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml
+/// TCP ports 1883 was registered with IANA for MQTT non TLS communication respectively.
 pub const TCP_PORT: u16 = 1883;
+/// TCP ports 8883 was registered with IANA for MQTT TLS communication respectively.
 pub const SSL_PORT: u16 = 8883;
 
 #[macro_export]

@@ -1,6 +1,7 @@
 use proto::{Protocol, QoS};
 
 bitflags! {
+    #[doc="Connect Flags"]
     pub struct ConnectFlags: u8 {
         const USERNAME      = 0b10000000;
         const PASSWORD      = 0b01000000;
@@ -14,14 +15,15 @@ bitflags! {
 pub const WILL_QOS_SHIFT: u8 = 3;
 
 bitflags! {
+    #[doc="Connect Acknowledge Flags"]
     pub struct ConnectAckFlags: u8 {
         const SESSION_PRESENT = 0b00000001;
     }
 }
 
+/// Connect Return Code
 #[repr(u8)]
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
-/// Connect Return Code
 pub enum ConnectReturnCode {
     /// Connection accepted
     ConnectionAccepted = 0,
@@ -59,6 +61,9 @@ impl ConnectReturnCode {
     }
 }
 
+/// Fixed Header
+///
+/// Each MQTT Control Packet contains a fixed header.
 #[derive(Debug, PartialEq, Clone)]
 pub struct FixedHeader {
     /// MQTT Control Packet type
@@ -70,8 +75,8 @@ pub struct FixedHeader {
     pub remaining_length: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
 /// Connection Will
+#[derive(Debug, PartialEq, Clone)]
 pub struct LastWill<'a> {
     /// the QoS level to be used when publishing the Will Message.
     pub qos: QoS,
@@ -83,15 +88,15 @@ pub struct LastWill<'a> {
     pub message: &'a [u8],
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
 /// Subscribe Return Code
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SubscribeReturnCode {
     Success(QoS),
     Failure,
 }
 
-#[derive(Debug, PartialEq, Clone)]
 /// MQTT Control Packets
+#[derive(Debug, PartialEq, Clone)]
 pub enum Packet<'a> {
     /// Client request to connect to Server
     Connect {

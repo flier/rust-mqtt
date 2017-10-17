@@ -104,4 +104,5 @@ impl Display for ClientId {
     }
 }
 
+/// Packet Identifier
 pub type PacketId = u16;
