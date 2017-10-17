@@ -3,8 +3,9 @@ use std::io;
 use std::io::prelude::*;
 use std::net::{self, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::convert::AsMut;
 
-use bytes::{Buf, BufMut, ByteBuf, SliceBuf};
+use bytes::{BufMut, Bytes, BytesMut};
 
 use nom::IError;
 
@@ -26,7 +27,7 @@ pub trait Transport {
         Ok(())
     }
 
-    fn send_packet(&mut self, packet: &Packet) -> Result<()> {
+    fn send_packet(&mut self, _: &Packet) -> Result<()> {
         Ok(())
     }
 }
@@ -37,20 +38,20 @@ impl Transport for Tls {}
 impl Transport for WebSocket {}
 
 pub enum State {
-    Receiving(ByteBuf),
-    Sending(SliceBuf<Vec<u8>>, ByteBuf),
+    Receiving(BytesMut),
+    Sending(BytesMut, Bytes),
     Closed,
 }
 
 impl State {
     pub fn receiving() -> State {
-        State::Receiving(ByteBuf::with_capacity(8 * 1024))
+        State::Receiving(BytesMut::with_capacity(8 * 1024))
     }
 
     #[inline]
     fn read_buf(&self) -> &[u8] {
         match *self {
-            State::Receiving(ref buf) => buf.bytes(),
+            State::Receiving(ref buf) => buf.as_ref(),
             _ => panic!("connection not in reading state"),
         }
     }
@@ -58,7 +59,7 @@ impl State {
     #[inline]
     fn mut_read_buf(&mut self) -> &mut [u8] {
         match *self {
-            State::Receiving(ref mut buf) => unsafe { buf.bytes_mut() },
+            State::Receiving(ref mut buf) => buf.as_mut(),
             _ => panic!("connection not in reading state"),
         }
     }
@@ -66,7 +67,7 @@ impl State {
     #[inline]
     fn write_buf(&self) -> &[u8] {
         match *self {
-            State::Sending(ref buf, _) => buf.bytes(),
+            State::Sending(ref buf, _) => buf.as_ref(),
             _ => panic!("connection not in writing state"),
         }
     }
@@ -80,7 +81,7 @@ impl State {
     }
 
     #[inline]
-    fn unwrap_read_buf(self) -> ByteBuf {
+    fn unwrap_read_buf(self) -> BytesMut {
         match self {
             State::Receiving(buf) => buf,
             _ => panic!("connection not in reading state"),
@@ -88,7 +89,7 @@ impl State {
     }
 
     #[inline]
-    fn unwrap_write_buf(self) -> (SliceBuf<Vec<u8>>, ByteBuf) {
+    fn unwrap_write_buf(self) -> (BytesMut, Bytes) {
         match self {
             State::Sending(buf, remaining) => (buf, remaining),
             _ => panic!("connection not in writing state"),
@@ -99,8 +100,10 @@ impl State {
     pub fn async_read<R: Read>(&mut self, r: &mut R) -> Result<()> {
         match r.read(self.mut_read_buf()) {
             Ok(0) => {
-                debug!("read 0 bytes from client, buffered {} bytes",
-                       self.read_buf().len());
+                debug!(
+                    "read 0 bytes from client, buffered {} bytes",
+                    self.read_buf().len()
+                );
 
                 match self.read_buf().len() {
                     n if n > 0 => self.try_transition_to_writing(0),
@@ -153,7 +156,7 @@ impl State {
             buf.advance_mut(n);
         }
 
-        match read_packet(buf.bytes()) {
+        match read_packet(buf.as_ref()) {
             Ok((remaining, packet)) => {
                 debug!("decoded request packet {:?}", packet);
 
@@ -161,11 +164,13 @@ impl State {
 
                 data.write_packet(&packet)?;
 
-                debug!("encoded response packet {:?} in {} bytes",
-                       packet,
-                       data.len());
+                debug!(
+                    "encoded response packet {:?} in {} bytes",
+                    packet,
+                    data.len()
+                );
 
-                *self = State::Sending(SliceBuf::new(data), ByteBuf::from_slice(remaining));
+                *self = State::Sending(BytesMut::from(data), Bytes::from(remaining));
 
                 Ok(())
             }
@@ -185,14 +190,14 @@ impl State {
     fn try_transition_to_reading(&mut self, n: usize) {
         let (mut buf, remaining) = mem::replace(self, State::Closed).unwrap_write_buf();
 
-        if buf.remaining() > n {
-            buf.advance(n);
+        if buf.remaining_mut() > n {
+            unsafe { buf.advance_mut(n) };
 
             *self = State::Sending(buf, remaining);
         } else {
-            let mut buf = ByteBuf::with_capacity(8 * 1024);
+            let mut buf = BytesMut::with_capacity(8 * 1024);
 
-            buf.copy_from_slice(remaining.bytes());
+            buf.copy_from_slice(remaining.as_ref());
 
             *self = State::Receiving(buf);
         }
@@ -215,20 +220,20 @@ impl Tcp {
         Self::wrap_listener(TcpListener::bind(addr), scope)
     }
 
-    pub fn from_listener(listener: net::TcpListener,
-                         addr: &SocketAddr,
-                         scope: &mut EarlyScope)
-                         -> Response<Self, Void> {
+    pub fn from_listener(
+        listener: net::TcpListener,
+        addr: &SocketAddr,
+        scope: &mut EarlyScope,
+    ) -> Response<Self, Void> {
         Self::wrap_listener(TcpListener::from_listener(listener, addr), scope)
     }
 
     fn wrap_listener(res: io::Result<TcpListener>, scope: &mut EarlyScope) -> Response<Self, Void> {
         match res.and_then(|sock| {
-                info!("tcp server listen on {}", sock.local_addr()?);
+            info!("tcp server listen on {}", sock.local_addr()?);
 
-                Ok(Tcp::Server(sock))
-            })
-            .and_then(|m| m.register(scope).map(|_| m)) {
+            Ok(Tcp::Server(sock))
+        }).and_then(|m| m.register(scope).map(|_| m)) {
             Ok(m) => Response::ok(m),
             Err(err) => Response::error(Box::new(err)),
         }
@@ -238,22 +243,23 @@ impl Tcp {
         Self::wrap_stream(TcpStream::connect(addr), scope)
     }
 
-    pub fn from_stream(stream: net::TcpStream,
-                       addr: &SocketAddr,
-                       scope: &mut EarlyScope)
-                       -> Response<(Fsm, TcpClient), Void> {
+    pub fn from_stream(
+        stream: net::TcpStream,
+        addr: &SocketAddr,
+        scope: &mut EarlyScope,
+    ) -> Response<(Fsm, TcpClient), Void> {
         Self::wrap_stream(TcpStream::connect_stream(stream, addr), scope)
     }
 
-    fn wrap_stream(res: io::Result<TcpStream>,
-                   scope: &mut EarlyScope)
-                   -> Response<(Fsm, TcpClient), Void> {
+    fn wrap_stream(
+        res: io::Result<TcpStream>,
+        scope: &mut EarlyScope,
+    ) -> Response<(Fsm, TcpClient), Void> {
         match res.and_then(|sock| {
-                info!("tcp stream {} -> {}", sock.local_addr()?, sock.peer_addr()?);
+            info!("tcp stream {} -> {}", sock.local_addr()?, sock.peer_addr()?);
 
-                Ok(Tcp::Client(sock))
-            })
-            .and_then(|m| m.register(scope).map(|_| m)) {
+            Ok(Tcp::Client(sock))
+        }).and_then(|m| m.register(scope).map(|_| m)) {
             Ok(m) => {
                 let arc = Arc::new(Mutex::new(m));
 
@@ -302,25 +308,31 @@ impl Tcp {
             Tcp::Client(ref sock) => {
                 debug!("client register for writable");
 
-                scope.register(sock,
-                               EventSet::writable(),
-                               PollOpt::edge() | PollOpt::oneshot())
+                scope.register(
+                    sock,
+                    EventSet::writable(),
+                    PollOpt::edge() | PollOpt::oneshot(),
+                )
             }
             Tcp::Connection(ref sock, ref state) => {
                 match *state {
                     State::Receiving(..) => {
                         debug!("connection register for readable");
 
-                        scope.register(sock,
-                                       EventSet::readable(),
-                                       PollOpt::edge() | PollOpt::oneshot())
+                        scope.register(
+                            sock,
+                            EventSet::readable(),
+                            PollOpt::edge() | PollOpt::oneshot(),
+                        )
                     }
                     State::Sending(..) => {
                         debug!("connection register for writable");
 
-                        scope.register(sock,
-                                       EventSet::writable(),
-                                       PollOpt::edge() | PollOpt::oneshot())
+                        scope.register(
+                            sock,
+                            EventSet::writable(),
+                            PollOpt::edge() | PollOpt::oneshot(),
+                        )
                     }
                     _ => Ok(()),
                 }
@@ -334,8 +346,11 @@ impl Machine for Tcp {
     type Context = TcpContext;
 
     fn create(conn: TcpStream, scope: &mut Scope<TcpContext>) -> Response<Self, Void> {
-        match Ok(Tcp::Connection(conn, State::receiving()))
-            .and_then(|m| m.register(scope).map(|_| m)) {
+        match Ok(Tcp::Connection(conn, State::receiving())).and_then(
+            |m| {
+                m.register(scope).map(|_| m)
+            },
+        ) {
             Ok(m) => Response::ok(m),
             Err(err) => Response::error(Box::new(err)),
         }
@@ -350,7 +365,8 @@ impl Machine for Tcp {
                     _ if events.is_hup() => Response::done(),
 
                     State::Receiving(..) if events.is_readable() => {
-                        state.async_read(&mut sock)
+                        state
+                            .async_read(&mut sock)
                             .map(|_| Tcp::Connection(sock, state))
                             .and_then(|m| {
                                 m.register(scope)?;
@@ -361,7 +377,8 @@ impl Machine for Tcp {
                     }
 
                     State::Sending(..) if events.is_writable() => {
-                        state.async_write(&mut sock)
+                        state
+                            .async_write(&mut sock)
                             .map(|_| Tcp::Connection(sock, state))
                             .and_then(|m| {
                                 m.register(scope)?;

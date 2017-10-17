@@ -54,13 +54,14 @@ impl<'a, H: Handler> Session<'a, H> {
         self.waiting_reply.clear();
     }
 
-    pub fn connect(&'a mut self,
-                   client_id: &'a ClientId,
-                   clean_session: bool,
-                   keep_alive: u16,
-                   auth: Option<(&'a str, &'a [u8])>,
-                   last_will: Option<Rc<Message<'a>>>)
-                   -> Packet<'a> {
+    pub fn connect(
+        &'a mut self,
+        client_id: &'a ClientId,
+        clean_session: bool,
+        keep_alive: u16,
+        auth: Option<(&'a str, &'a [u8])>,
+        last_will: Option<Rc<Message<'a>>>,
+    ) -> Packet<'a> {
         Packet::Connect {
             protocol: Default::default(),
             clean_session: clean_session,
@@ -82,32 +83,36 @@ impl<'a, H: Handler> Session<'a, H> {
     fn delivery_retry(&mut self) -> Vec<Packet<'a>> {
         self.waiting_reply
             .iter()
-            .map(|ref waiting| {
-                match *waiting {
-                    &Waiting::PublishAck { packet_id, ref msg } => {
-                        Packet::Publish {
-                            dup: false,
-                            retain: false,
-                            qos: msg.qos,
-                            topic: msg.topic,
-                            packet_id: Some(packet_id),
-                            payload: msg.payload,
-                        }
+            .map(|ref waiting| match *waiting {
+                &Waiting::PublishAck { packet_id, ref msg } => {
+                    Packet::Publish {
+                        dup: false,
+                        retain: false,
+                        qos: msg.qos,
+                        topic: msg.topic,
+                        packet_id: Some(packet_id),
+                        payload: msg.payload,
                     }
-                    &Waiting::PublishComplete { packet_id } => {
-                        Packet::PublishRelease { packet_id: packet_id }
+                }
+                &Waiting::PublishComplete { packet_id } => {
+                    Packet::PublishRelease { packet_id: packet_id }
+                }
+                &Waiting::SubscribeAck {
+                    packet_id,
+                    ref topic_filters,
+                } => {
+                    Packet::Subscribe {
+                        packet_id: packet_id,
+                        topic_filters: From::from(*topic_filters),
                     }
-                    &Waiting::SubscribeAck { packet_id, ref topic_filters } => {
-                        Packet::Subscribe {
-                            packet_id: packet_id,
-                            topic_filters: From::from(*topic_filters),
-                        }
-                    }
-                    &Waiting::UnsubscribeAck { packet_id, ref topic_filters } => {
-                        Packet::Unsubscribe {
-                            packet_id: packet_id,
-                            topic_filters: From::from(*topic_filters),
-                        }
+                }
+                &Waiting::UnsubscribeAck {
+                    packet_id,
+                    ref topic_filters,
+                } => {
+                    Packet::Unsubscribe {
+                        packet_id: packet_id,
+                        topic_filters: From::from(*topic_filters),
                     }
                 }
             })
@@ -140,7 +145,8 @@ impl<'a, H: Handler> Session<'a, H> {
         if let Some(entry) = self.waiting_reply.vacant_entry() {
             let packet_id = entry.index() as PacketId;
 
-            Some(entry.insert(Waiting::PublishAck {
+            Some(entry
+                .insert(Waiting::PublishAck {
                     packet_id: packet_id,
                     msg: msg.clone(),
                 })
@@ -186,12 +192,13 @@ impl<'a, H: Handler> Session<'a, H> {
         None
     }
 
-    fn on_publish(&mut self,
-                  dup: bool,
-                  retain: bool,
-                  packet_id: Option<PacketId>,
-                  msg: Rc<Message<'a>>)
-                  -> Option<Packet<'a>> {
+    fn on_publish(
+        &mut self,
+        _dup: bool,
+        _retain: bool,
+        packet_id: Option<PacketId>,
+        msg: Rc<Message<'a>>,
+    ) -> Option<Packet<'a>> {
         self.handler.on_received_message(&msg);
 
         packet_id.and_then(|packet_id| self.send_reply(packet_id, msg))
@@ -230,11 +237,13 @@ impl<'a, H: Handler> Session<'a, H> {
     }
 
     fn on_subscribe_ack(&mut self, packet_id: PacketId, status: &[SubscribeReturnCode]) {
-        if let Some(Waiting::SubscribeAck { topic_filters, .. }) = self.waiting_reply
-            .remove(packet_id as usize) {
+        if let Some(Waiting::SubscribeAck { topic_filters, .. }) =
+            self.waiting_reply.remove(packet_id as usize)
+        {
             debug!("subscribe {} acked", packet_id);
 
-            let status = topic_filters.iter()
+            let status = topic_filters
+                .iter()
                 .map(|&(topic, _)| topic)
                 .zip(status.iter().map(|code| *code))
                 .collect::<Vec<(&str, SubscribeReturnCode)>>();
@@ -266,8 +275,9 @@ impl<'a, H: Handler> Session<'a, H> {
     }
 
     fn on_unsubscribe_ack(&mut self, packet_id: PacketId) {
-        if let Some(Waiting::UnsubscribeAck { topic_filters, .. }) = self.waiting_reply
-            .remove(packet_id as usize) {
+        if let Some(Waiting::UnsubscribeAck { topic_filters, .. }) =
+            self.waiting_reply.remove(packet_id as usize)
+        {
             debug!("unsubscribe {} acked", packet_id);
 
             self.handler.on_unsubscribed_topic(topic_filters)
@@ -295,70 +305,96 @@ impl<'a, T: Transport, H: 'a + Handler> Client<'a, T, H> {
 impl<'a, T: Transport, H: 'a + Handler> transport::Handler<'a> for Client<'a, T, H> {
     fn on_received_packet(&mut self, packet: &Packet<'a>) {
         match *packet {
-            Packet::ConnectAck { session_present, return_code } => {
+            Packet::ConnectAck {
+                session_present,
+                return_code,
+            } => {
                 match return_code {
                     ConnectReturnCode::ConnectionAccepted => {
-                        info!("client session `{}` {}",
-                              self.client_id,
-                              if session_present {
-                                  "resumed"
-                              } else {
-                                  "created"
-                              });
+                        info!(
+                            "client session `{}` {}",
+                            self.client_id,
+                            if session_present {
+                                "resumed"
+                            } else {
+                                "created"
+                            }
+                        );
 
-                        self.session
-                            .delivery_retry()
-                            .iter()
-                            .map(|packet| self.transport.send_packet(&packet));
+                        for packet in self.session.delivery_retry() {
+                            if let Err(err) = self.transport.send_packet(&packet) {
+                                warn!("fail to send packet, {}", err)
+                            }
+                        }
                     }
                     _ => {
-                        info!("client session `{}` refused, {}",
-                              self.client_id,
-                              return_code.reason());
+                        info!(
+                            "client session `{}` refused, {}",
+                            self.client_id,
+                            return_code.reason()
+                        );
 
-                        self.close();
+                        if let Err(err) = self.close() {
+                            warn!("fail to close session, {}", err)
+                        }
                     }
                 }
             }
-            Packet::Publish { dup, retain, qos, topic, packet_id, payload } => {
+            Packet::Publish {
+                dup,
+                retain,
+                qos,
+                topic,
+                packet_id,
+                payload,
+            } => {
                 self.session
-                    .on_publish(dup,
-                                retain,
-                                packet_id,
-                                Rc::new(Message {
-                                    topic: topic,
-                                    payload: payload,
-                                    qos: qos,
-                                }))
+                    .on_publish(
+                        dup,
+                        retain,
+                        packet_id,
+                        Rc::new(Message {
+                            topic: topic,
+                            payload: payload,
+                            qos: qos,
+                        }),
+                    )
                     .and_then(|packet| self.transport.send_packet(&packet).ok());
             }
             Packet::PublishAck { packet_id } => {
-                self.session
-                    .on_publish_ack(packet_id)
-                    .and_then(|packet| self.transport.send_packet(&packet).ok());
+                self.session.on_publish_ack(packet_id).and_then(|packet| {
+                    self.transport.send_packet(&packet).ok()
+                });
             }
             Packet::PublishReceived { packet_id } => {
-                self.session
-                    .on_publish_received(packet_id)
-                    .and_then(|packet| self.transport.send_packet(&packet).ok());
+                self.session.on_publish_received(packet_id).and_then(
+                    |packet| {
+                        self.transport.send_packet(&packet).ok()
+                    },
+                );
             }
             Packet::PublishRelease { packet_id } => {
-                self.session
-                    .on_publish_release(packet_id)
-                    .and_then(|packet| self.transport.send_packet(&packet).ok());
+                self.session.on_publish_release(packet_id).and_then(
+                    |packet| {
+                        self.transport.send_packet(&packet).ok()
+                    },
+                );
             }
             Packet::PublishComplete { packet_id } => {
-                self.session
-                    .on_publish_complete(packet_id)
-                    .and_then(|packet| self.transport.send_packet(&packet).ok());
+                self.session.on_publish_complete(packet_id).and_then(
+                    |packet| {
+                        self.transport.send_packet(&packet).ok()
+                    },
+                );
             }
-            Packet::SubscribeAck { packet_id, ref status } => {
-                self.session
-                    .on_subscribe_ack(packet_id, status);
+            Packet::SubscribeAck {
+                packet_id,
+                ref status,
+            } => {
+                self.session.on_subscribe_ack(packet_id, status);
             }
             Packet::UnsubscribeAck { packet_id } => {
-                self.session
-                    .on_unsubscribe_ack(packet_id);
+                self.session.on_unsubscribe_ack(packet_id);
             }
             Packet::PingResponse => {
                 debug!("received ping response");
@@ -386,10 +422,11 @@ impl Builder {
         self
     }
 
-    pub fn build<'a, T: Transport, H: 'a + Handler>(self,
-                                                    transport: T,
-                                                    handler: &'a mut H)
-                                                    -> Client<'a, T, H> {
+    pub fn build<'a, T: Transport, H: 'a + Handler>(
+        self,
+        transport: T,
+        handler: &'a mut H,
+    ) -> Client<'a, T, H> {
         Client {
             transport: transport,
             session: Session::new(handler),

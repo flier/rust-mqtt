@@ -11,18 +11,17 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 log = "^0.3"
-bitflags = "^0.7"
-error-chain = "^0.7"
-itertools = "^0.5"
+bitflags = "^1.0"
+error-chain = "^0.11"
 rand = "^0.3"
-nom = "^2.0"
-byteorder = "^0.5"
+nom = "^3.0"
+byteorder = "^1.1"
 slab = "^0.3"
 rotor = "^0.6"
-bytes = { git = "https://github.com/carllerche/bytes", rev = "53d1c78" }
+bytes = "0.4"
 
 [dev-dependencies]
-env_logger = "^0.3"
+env_logger = "^0.4"
 clap = "^2"
 mio = "^0.6"
 

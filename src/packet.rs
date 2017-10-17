@@ -1,21 +1,21 @@
 use proto::{Protocol, QoS};
 
 bitflags! {
-    pub flags ConnectFlags: u8 {
-        const USERNAME      = 0b10000000,
-        const PASSWORD      = 0b01000000,
-        const WILL_RETAIN   = 0b00100000,
-        const WILL_QOS      = 0b00011000,
-        const WILL          = 0b00000100,
-        const CLEAN_SESSION = 0b00000010,
+    pub struct ConnectFlags: u8 {
+        const USERNAME      = 0b10000000;
+        const PASSWORD      = 0b01000000;
+        const WILL_RETAIN   = 0b00100000;
+        const WILL_QOS      = 0b00011000;
+        const WILL          = 0b00000100;
+        const CLEAN_SESSION = 0b00000010;
     }
 }
 
 pub const WILL_QOS_SHIFT: u8 = 3;
 
 bitflags! {
-    pub flags ConnectAckFlags: u8 {
-        const SESSION_PRESENT = 0b00000001,
+    pub struct ConnectAckFlags: u8 {
+        const SESSION_PRESENT = 0b00000001;
     }
 }
 

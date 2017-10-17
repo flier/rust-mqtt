@@ -12,18 +12,29 @@ pub trait WritePacketHelper: io::Write {
     fn write_fixed_header(&mut self, packet: &Packet) -> Result<usize> {
         let content_size = self.calc_content_size(packet);
 
-        debug!("write FixedHeader {{ type={}, flags={}, remaining_length={} }} ",
-               packet.packet_type(),
-               packet.packet_flags(),
-               content_size);
+        debug!(
+            "write FixedHeader {{ type={}, flags={}, remaining_length={} }} ",
+            packet.packet_type(),
+            packet.packet_flags(),
+            content_size
+        );
 
-        Ok(self.write(&[(packet.packet_type() << 4) | packet.packet_flags()])? +
-           self.write_variable_length(content_size)?)
+        Ok(
+            self.write(
+                &[(packet.packet_type() << 4) | packet.packet_flags()],
+            )? + self.write_variable_length(content_size)?,
+        )
     }
 
     fn calc_content_size(&mut self, packet: &Packet) -> usize {
         match *packet {
-            Packet::Connect { ref last_will, client_id, username, password, .. } => {
+            Packet::Connect {
+                ref last_will,
+                client_id,
+                username,
+                password,
+                ..
+            } => {
                 // Protocol Name + Protocol Level + Connect Flags + Keep Alive
                 let mut n = 2 + 4 + 1 + 1 + 2;
 
@@ -48,7 +59,12 @@ pub trait WritePacketHelper: io::Write {
 
             Packet::ConnectAck { .. } => 2, // Flags + Return Code
 
-            Packet::Publish { topic, packet_id, payload, .. } => {
+            Packet::Publish {
+                topic,
+                packet_id,
+                payload,
+                ..
+            } => {
                 // Topic + Packet Id + Payload
                 2 + topic.len() + packet_id.map_or(0, |_| 2) + payload.len()
             }
@@ -60,13 +76,20 @@ pub trait WritePacketHelper: io::Write {
             Packet::UnsubscribeAck { .. } => 2, // Packet Id
 
             Packet::Subscribe { ref topic_filters, .. } => {
-                2 + topic_filters.iter().fold(0, |acc, &(filter, _)| acc + 2 + filter.len() + 1)
+                2 +
+                    topic_filters.iter().fold(0, |acc, &(filter, _)| {
+                        acc + 2 + filter.len() + 1
+                    })
             }
 
             Packet::SubscribeAck { ref status, .. } => 2 + status.len(),
 
             Packet::Unsubscribe { ref topic_filters, .. } => {
-                2 + topic_filters.iter().fold(0, |acc, &filter| acc + 2 + filter.len())
+                2 +
+                    topic_filters.iter().fold(
+                        0,
+                        |acc, &filter| acc + 2 + filter.len(),
+                    )
             }
 
             Packet::PingRequest | Packet::PingResponse | Packet::Disconnect => 0,
@@ -77,29 +100,31 @@ pub trait WritePacketHelper: io::Write {
         let mut n = 0;
 
         match *packet {
-            Packet::Connect { protocol,
-                              clean_session,
-                              keep_alive,
-                              ref last_will,
-                              client_id,
-                              username,
-                              password } => {
+            Packet::Connect {
+                protocol,
+                clean_session,
+                keep_alive,
+                ref last_will,
+                client_id,
+                username,
+                password,
+            } => {
                 n += self.write_utf8_str(protocol.name())?;
 
                 let mut flags = ConnectFlags::empty();
 
                 if username.is_some() {
-                    flags |= USERNAME;
+                    flags |= ConnectFlags::USERNAME;
                 }
                 if password.is_some() {
-                    flags |= PASSWORD;
+                    flags |= ConnectFlags::PASSWORD;
                 }
 
                 if let &Some(LastWill { qos, retain, .. }) = last_will {
-                    flags |= WILL;
+                    flags |= ConnectFlags::WILL;
 
                     if retain {
-                        flags |= WILL_RETAIN;
+                        flags |= ConnectFlags::WILL_RETAIN;
                     }
 
                     let b: u8 = qos.into();
@@ -108,7 +133,7 @@ pub trait WritePacketHelper: io::Write {
                 }
 
                 if clean_session {
-                    flags |= CLEAN_SESSION;
+                    flags |= ConnectFlags::CLEAN_SESSION;
                 }
 
                 n += self.write(&[protocol.level(), flags.bits()])?;
@@ -132,11 +157,25 @@ pub trait WritePacketHelper: io::Write {
                 }
             }
 
-            Packet::ConnectAck { session_present, return_code } => {
-                n += self.write(&[if session_present { 0x01 } else { 0x00 }, return_code.into()])?;
+            Packet::ConnectAck {
+                session_present,
+                return_code,
+            } => {
+                n += self.write(
+                    &[
+                        if session_present { 0x01 } else { 0x00 },
+                        return_code.into(),
+                    ],
+                )?;
             }
 
-            Packet::Publish { qos, topic, packet_id, payload, .. } => {
+            Packet::Publish {
+                qos,
+                topic,
+                packet_id,
+                payload,
+                ..
+            } => {
                 n += self.write_utf8_str(topic)?;
 
                 if qos == QoS::AtLeastOnce || qos == QoS::ExactlyOnce {
@@ -158,7 +197,10 @@ pub trait WritePacketHelper: io::Write {
                 n += 2;
             }
 
-            Packet::Subscribe { packet_id, ref topic_filters } => {
+            Packet::Subscribe {
+                packet_id,
+                ref topic_filters,
+            } => {
                 self.write_u16::<BigEndian>(packet_id)?;
 
                 n += 2;
@@ -168,12 +210,16 @@ pub trait WritePacketHelper: io::Write {
                 }
             }
 
-            Packet::SubscribeAck { packet_id, ref status } => {
+            Packet::SubscribeAck {
+                packet_id,
+                ref status,
+            } => {
                 self.write_u16::<BigEndian>(packet_id)?;
 
                 n += 2;
 
-                let buf: Vec<u8> = status.iter()
+                let buf: Vec<u8> = status
+                    .iter()
                     .map(|s| if let SubscribeReturnCode::Success(qos) = *s {
                         qos.into()
                     } else {
@@ -184,7 +230,10 @@ pub trait WritePacketHelper: io::Write {
                 n += self.write(&buf)?;
             }
 
-            Packet::Unsubscribe { packet_id, ref topic_filters } => {
+            Packet::Unsubscribe {
+                packet_id,
+                ref topic_filters,
+            } => {
                 self.write_u16::<BigEndian>(packet_id)?;
 
                 n += 2;
@@ -258,7 +307,9 @@ pub trait WritePacketExt: io::Write {
     #[inline]
     /// Writes packet to the underlying writer.
     fn write_packet(&mut self, packet: &Packet) -> Result<usize> {
-        Ok(self.write_fixed_header(packet)? + self.write_content(packet)?)
+        Ok(
+            self.write_fixed_header(packet)? + self.write_content(packet)?,
+        )
     }
 }
 
@@ -269,8 +320,6 @@ impl<W: io::Write + ?Sized> WritePacketExt for W {}
 mod tests {
     extern crate env_logger;
 
-    use proto::*;
-    use packet::*;
     use decode::*;
     use super::*;
 
@@ -340,86 +389,103 @@ mod tests {
 
     #[test]
     fn test_encode_connect_packets() {
-        assert_packet!(Packet::Connect {
-                           protocol: Protocol::MQTT(4),
-                           clean_session: false,
-                           keep_alive: 60,
-                           client_id: "12345",
-                           last_will: None,
-                           username: Some("user"),
-                           password: Some(b"pass"),
-                       },
-                       &b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\
-\x0512345\x00\x04user\x00\x04pass"[..]);
+        assert_packet!(
+            Packet::Connect {
+                protocol: Protocol::MQTT(4),
+                clean_session: false,
+                keep_alive: 60,
+                client_id: "12345",
+                last_will: None,
+                username: Some("user"),
+                password: Some(b"pass"),
+            },
+            &b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\
+\x0512345\x00\x04user\x00\x04pass"[..]
+        );
 
-        assert_packet!(Packet::Connect {
-                           protocol: Protocol::MQTT(4),
-                           clean_session: false,
-                           keep_alive: 60,
-                           client_id: "12345",
-                           last_will: Some(LastWill {
-                               qos: QoS::ExactlyOnce,
-                               retain: false,
-                               topic: "topic",
-                               message: b"message",
-                           }),
-                           username: None,
-                           password: None,
-                       },
-                       &b"\x10\x21\x00\x04MQTT\x04\x14\x00\x3C\x00\
-\x0512345\x00\x05topic\x00\x07message"[..]);
+        assert_packet!(
+            Packet::Connect {
+                protocol: Protocol::MQTT(4),
+                clean_session: false,
+                keep_alive: 60,
+                client_id: "12345",
+                last_will: Some(LastWill {
+                    qos: QoS::ExactlyOnce,
+                    retain: false,
+                    topic: "topic",
+                    message: b"message",
+                }),
+                username: None,
+                password: None,
+            },
+            &b"\x10\x21\x00\x04MQTT\x04\x14\x00\x3C\x00\
+\x0512345\x00\x05topic\x00\x07message"[..]
+        );
 
         assert_packet!(Packet::Disconnect, b"\xe0\x00");
     }
 
     #[test]
     fn test_encode_publish_packets() {
-        assert_packet!(Packet::Publish {
-                           dup: true,
-                           retain: true,
-                           qos: QoS::ExactlyOnce,
-                           topic: "topic",
-                           packet_id: Some(0x4321),
-                           payload: b"data",
-                       },
-                       b"\x3d\x0D\x00\x05topic\x43\x21data");
+        assert_packet!(
+            Packet::Publish {
+                dup: true,
+                retain: true,
+                qos: QoS::ExactlyOnce,
+                topic: "topic",
+                packet_id: Some(0x4321),
+                payload: b"data",
+            },
+            b"\x3d\x0D\x00\x05topic\x43\x21data"
+        );
 
-        assert_packet!(Packet::Publish {
-                           dup: false,
-                           retain: false,
-                           qos: QoS::AtMostOnce,
-                           topic: "topic",
-                           packet_id: None,
-                           payload: b"data",
-                       },
-                       b"\x30\x0b\x00\x05topicdata");
+        assert_packet!(
+            Packet::Publish {
+                dup: false,
+                retain: false,
+                qos: QoS::AtMostOnce,
+                topic: "topic",
+                packet_id: None,
+                payload: b"data",
+            },
+            b"\x30\x0b\x00\x05topicdata"
+        );
     }
 
     #[test]
     fn test_encode_subscribe_packets() {
-        assert_packet!(Packet::Subscribe {
-                           packet_id: 0x1234,
-                           topic_filters: vec![("test", QoS::AtLeastOnce),
-                                               ("filter", QoS::ExactlyOnce)],
-                       },
-                       b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02");
+        assert_packet!(
+            Packet::Subscribe {
+                packet_id: 0x1234,
+                topic_filters: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce)],
+            },
+            b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02"
+        );
 
-        assert_packet!(Packet::SubscribeAck {
-                           packet_id: 0x1234,
-                           status: vec![SubscribeReturnCode::Success(QoS::AtLeastOnce),
-                                        SubscribeReturnCode::Failure,
-                                        SubscribeReturnCode::Success(QoS::ExactlyOnce)],
-                       },
-                       b"\x90\x05\x12\x34\x01\x80\x02");
+        assert_packet!(
+            Packet::SubscribeAck {
+                packet_id: 0x1234,
+                status: vec![
+                    SubscribeReturnCode::Success(QoS::AtLeastOnce),
+                    SubscribeReturnCode::Failure,
+                    SubscribeReturnCode::Success(QoS::ExactlyOnce),
+                ],
+            },
+            b"\x90\x05\x12\x34\x01\x80\x02"
+        );
 
-        assert_packet!(Packet::Unsubscribe {
-                           packet_id: 0x1234,
-                           topic_filters: vec!["test", "filter"],
-                       },
-                       b"\xa2\x10\x12\x34\x00\x04test\x00\x06filter");
+        assert_packet!(
+            Packet::Unsubscribe {
+                packet_id: 0x1234,
+                topic_filters: vec!["test", "filter"],
+            },
+            b"\xa2\x10\x12\x34\x00\x04test\x00\x06filter"
+        );
 
-        assert_packet!(Packet::UnsubscribeAck { packet_id: 0x4321 },
-                       b"\xb0\x02\x43\x21");
+        assert_packet!(
+            Packet::UnsubscribeAck { packet_id: 0x4321 },
+            b"\xb0\x02\x43\x21"
+        );
     }
 
     #[test]
