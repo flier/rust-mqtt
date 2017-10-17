@@ -12,9 +12,9 @@ macro_rules! const_enum {
             }
         }
 
-        impl ::std::convert::Into<$repr> for $name {
-            fn into(self) -> $repr {
-                unsafe { ::std::mem::transmute(self) }
+        impl ::std::convert::From<$name> for $repr {
+            fn from(u: $name) -> Self {
+                unsafe { ::std::mem::transmute(u) }
             }
         }
     }
