@@ -54,7 +54,7 @@ pub fn decode_variable_length_usize(i: &[u8]) -> IResult<&[u8], usize> {
 
 named!(pub decode_length_bytes, length_bytes!(be_u16));
 
-fn decode_utf8_str<'a>(i: &'a [u8]) -> IResult<&'a [u8], Cow<'a, str>> {
+fn decode_utf8_str(i: &[u8]) -> IResult<&[u8], Cow<str>> {
     match be_u16(i) {
         Done(remaining, len) => {
             let len = len as usize;
@@ -139,7 +139,7 @@ named!(pub decode_connect_ack_header<(ConnectAckFlags, ConnectReturnCode)>, do_p
     )
 ));
 
-pub fn decode_publish_header<'a>(i: &'a [u8]) -> IResult<&'a [u8], (Cow<'a, str>, u16)> {
+pub fn decode_publish_header(i: &[u8]) -> IResult<&[u8], (Cow<str>, u16)> {
     match decode_utf8_str(i) {
         Done(remaining, topic) => {
             match be_u16(remaining) {
@@ -195,7 +195,7 @@ named!(pub decode_unsubscribe_header<Packet>, do_parse!(
 ));
 
 
-fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[u8], Packet> {
+fn decode_variable_header(i: &[u8], fixed_header: FixedHeader) -> IResult<&[u8], Packet> {
     match fixed_header.packet_type.into() {
         PacketType::CONNECT => decode_connect_header(i),
         PacketType::CONNACK => {
@@ -299,7 +299,7 @@ impl<T: AsRef<[u8]>> ReadPacketExt for T {}
 ///
 /// assert_eq!(read_packet(b"\xc0\x00\xd0\x00").unwrap(), (&b"\xd0\x00"[..], Packet::PingRequest));
 /// ```
-pub fn read_packet<'a>(i: &'a [u8]) -> Result<(&'a [u8], Packet<'a>), IError> {
+pub fn read_packet(i: &[u8]) -> Result<(&[u8], Packet), IError> {
     match decode_packet(i) {
         r @ Done(..) => Ok(r.unwrap()),
         Error(e) => Err(IError::Error(e)),

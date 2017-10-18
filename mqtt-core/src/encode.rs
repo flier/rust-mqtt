@@ -45,11 +45,11 @@ pub trait WritePacketHelper: io::Write {
                 n += 2 + client_id.len();
 
                 // Will Topic + Will Message
-                if let &Some(LastWill {
+                if let Some(LastWill {
                                  ref topic,
                                  ref message,
                                  ..
-                             }) = last_will
+                             }) = *last_will
                 {
                     n += 2 + topic.len() + 2 + message.len();
                 }
@@ -65,8 +65,6 @@ pub trait WritePacketHelper: io::Write {
                 n
             }
 
-            Packet::ConnectAck { .. } => 2, // Flags + Return Code
-
             Packet::Publish {
                 ref topic,
                 packet_id,
@@ -77,6 +75,7 @@ pub trait WritePacketHelper: io::Write {
                 2 + topic.len() + packet_id.map_or(0, |_| 2) + payload.len()
             }
 
+            Packet::ConnectAck { .. } | // Flags + Return Code
             Packet::PublishAck { .. } |
             Packet::PublishReceived { .. } |
             Packet::PublishRelease { .. } |
@@ -94,7 +93,7 @@ pub trait WritePacketHelper: io::Write {
 
             Packet::Unsubscribe { ref topic_filters, .. } => {
                 2 +
-                    topic_filters.iter().fold(0, |acc, ref filter| {
+                    topic_filters.iter().fold(0, |acc,  filter| {
                         acc + 2 + filter.len()
                     })
             }
@@ -127,7 +126,7 @@ pub trait WritePacketHelper: io::Write {
                     flags |= ConnectFlags::PASSWORD;
                 }
 
-                if let &Some(LastWill { qos, retain, .. }) = last_will {
+                if let Some(LastWill { qos, retain, .. }) = *last_will {
                     flags |= ConnectFlags::WILL;
 
                     if retain {
@@ -148,24 +147,24 @@ pub trait WritePacketHelper: io::Write {
                 self.write_u16::<BigEndian>(keep_alive)?;
                 n += 2;
 
-                n += self.write_utf8_str(&client_id)?;
+                n += self.write_utf8_str(client_id)?;
 
-                if let &Some(LastWill {
-                                 ref topic,
-                                 ref message,
-                                 ..
-                             }) = last_will
+                if let Some(LastWill {
+                                ref topic,
+                                ref message,
+                                ..
+                            }) = *last_will
                 {
-                    n += self.write_utf8_str(&topic)?;
-                    n += self.write_fixed_length_bytes(&message)?;
+                    n += self.write_utf8_str(topic)?;
+                    n += self.write_fixed_length_bytes(message)?;
                 }
 
                 if let Some(s) = username.as_ref() {
-                    n += self.write_utf8_str(&s)?;
+                    n += self.write_utf8_str(s)?;
                 }
 
                 if let Some(s) = password.as_ref() {
-                    n += self.write_fixed_length_bytes(&s)?;
+                    n += self.write_fixed_length_bytes(s)?;
                 }
             }
 
@@ -188,7 +187,7 @@ pub trait WritePacketHelper: io::Write {
                 ref payload,
                 ..
             } => {
-                n += self.write_utf8_str(&topic)?;
+                n += self.write_utf8_str(topic)?;
 
                 if qos == QoS::AtLeastOnce || qos == QoS::ExactlyOnce {
                     self.write_u16::<BigEndian>(packet_id.unwrap())?;
@@ -196,7 +195,7 @@ pub trait WritePacketHelper: io::Write {
                     n += 2;
                 }
 
-                n += self.write(&payload)?;
+                n += self.write(payload)?;
             }
 
             Packet::PublishAck { packet_id } |
@@ -218,7 +217,7 @@ pub trait WritePacketHelper: io::Write {
                 n += 2;
 
                 for &(ref filter, qos) in topic_filters {
-                    n += self.write_utf8_str(&filter)? + self.write(&[qos as u8])?;
+                    n += self.write_utf8_str(filter)? + self.write(&[qos as u8])?;
                 }
             }
 

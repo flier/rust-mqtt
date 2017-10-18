@@ -1,8 +1,7 @@
 use std::io;
-use std::rc::Rc;
 use std::marker::PhantomData;
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use nom::{IResult, IError};
 
 use tokio_io::codec::{Encoder, Decoder};
@@ -10,6 +9,7 @@ use tokio_io::codec::{Encoder, Decoder};
 use core::{Packet, WritePacketExt, ReadPacketExt, decode_variable_length_usize};
 
 /// MQTT protocol codec
+#[derive(Debug, Default)]
 pub struct Codec<'a>(PhantomData<&'a u8>);
 
 impl<'a> Encoder for Codec<'a> {
