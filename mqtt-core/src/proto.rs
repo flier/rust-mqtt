@@ -46,7 +46,7 @@ impl Protocol {
 
 impl Default for Protocol {
     fn default() -> Self {
-        return Protocol::MQTT(DEFAULT_MQTT_LEVEL);
+        Protocol::MQTT(DEFAULT_MQTT_LEVEL)
     }
 }
 

@@ -130,7 +130,7 @@ named!(pub decode_connect_header<Packet>, do_parse!(
 
 named!(pub decode_connect_ack_header<(ConnectAckFlags, ConnectReturnCode)>, do_parse!(
     flags: be_u8 >>
-    error_if!((flags & 0b11111110) != 0, RESERVED_FLAG) >>
+    error_if!((flags & 0b1111_1110) != 0, RESERVED_FLAG) >>
 
     return_code: be_u8 >>
     (
@@ -299,7 +299,7 @@ impl<T: AsRef<[u8]>> ReadPacketExt for T {}
 ///
 /// assert_eq!(read_packet(b"\xc0\x00\xd0\x00").unwrap(), (&b"\xd0\x00"[..], Packet::PingRequest));
 /// ```
-pub fn read_packet(i: &[u8]) -> Result<(&[u8], Packet), IError> {
+pub fn read_packet<'a>(i: &'a [u8]) -> Result<(&'a [u8], Packet<'a>), IError> {
     match decode_packet(i) {
         r @ Done(..) => Ok(r.unwrap()),
         Error(e) => Err(IError::Error(e)),

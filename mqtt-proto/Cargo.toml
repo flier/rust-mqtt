@@ -1,5 +1,5 @@
 [package]
-name = "mqtt-core"
+name = "mqtt-proto"
 version = "0.2.0"
 authors = ["Flier Lu <flier.lu@gmail.com>"]
 description = "MQTT protocol v3 implementation"
@@ -9,17 +9,19 @@ repository = "https://github.com/flier/rust-mqtt.git"
 keywords = ["MQTT", "IoT", "messaging"]
 license = "MIT/Apache-2.0"
 
-[features]
-default = []
-
 [dependencies]
 log = "^0.3"
-bitflags = "^1.0"
-rand = "^0.3"
+error-chain = "^0.11"
+bytes = "0.4"
 nom = "^3.2"
-byteorder = "^1.1"
 
-clippy = {version = "*", optional = true}
+futures = "0.1"
+tokio-io = "0.1"
+tokio-core = "0.1"
+tokio-proto = "0.1"
+tokio-service = "0.1"
+
+mqtt-core = { version = "*", path = "../mqtt-core" }
 
 [dev-dependencies]
 env_logger = "^0.4"

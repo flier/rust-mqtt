@@ -5,12 +5,12 @@ use proto::{Protocol, QoS};
 bitflags! {
     #[doc="Connect Flags"]
     pub struct ConnectFlags: u8 {
-        const USERNAME      = 0b10000000;
-        const PASSWORD      = 0b01000000;
-        const WILL_RETAIN   = 0b00100000;
-        const WILL_QOS      = 0b00011000;
-        const WILL          = 0b00000100;
-        const CLEAN_SESSION = 0b00000010;
+        const USERNAME      = 0b1000_0000;
+        const PASSWORD      = 0b0100_0000;
+        const WILL_RETAIN   = 0b0010_0000;
+        const WILL_QOS      = 0b0001_1000;
+        const WILL          = 0b0000_0100;
+        const CLEAN_SESSION = 0b0000_0010;
     }
 }
 
@@ -19,7 +19,7 @@ pub const WILL_QOS_SHIFT: u8 = 3;
 bitflags! {
     #[doc="Connect Acknowledge Flags"]
     pub struct ConnectAckFlags: u8 {
-        const SESSION_PRESENT = 0b00000001;
+        const SESSION_PRESENT = 0b0000_0001;
     }
 }
 
@@ -234,6 +234,89 @@ impl<'a> Packet<'a> {
             Packet::Subscribe { .. } |
             Packet::Unsubscribe { .. } => 0b0010,
             _ => 0,
+        }
+    }
+
+    pub fn into_owned(self) -> Packet<'static> {
+        match self {
+            Packet::Connect {
+                protocol,
+                clean_session,
+                keep_alive,
+                last_will,
+                client_id,
+                username,
+                password,
+            } => Packet::Connect {
+                protocol,
+                clean_session,
+                keep_alive,
+                last_will: last_will.map(|last_will| {
+                    LastWill {
+                        qos: last_will.qos,
+                        retain: last_will.retain,
+                        topic: last_will.topic.into_owned().into(),
+                        message: last_will.message.into_owned().into(),
+                    }
+                }),
+                client_id: client_id.into_owned().into(),
+                username: username.map(|o| o.into_owned().into()),
+                password: password.map(|o| o.into_owned().into()),
+            },
+            Packet::ConnectAck {
+                session_present,
+                return_code,
+            } => Packet::ConnectAck {
+                session_present,
+                return_code,
+            },
+            Packet::Publish {
+                dup,
+                retain,
+                qos,
+                topic,
+                packet_id,
+                payload,
+            } => Packet::Publish {
+                dup,
+                retain,
+                qos,
+                topic: topic.into_owned().into(),
+                packet_id: packet_id,
+                payload: payload.into_owned().into(),
+            },
+            Packet::PublishAck { packet_id } => Packet::PublishAck { packet_id },
+            Packet::PublishReceived { packet_id } => Packet::PublishReceived { packet_id },
+            Packet::PublishRelease { packet_id } => Packet::PublishRelease { packet_id },
+            Packet::PublishComplete { packet_id } => Packet::PublishComplete { packet_id },
+            Packet::Subscribe {
+                packet_id,
+                topic_filters,
+            } => Packet::Subscribe {
+                packet_id,
+                topic_filters: topic_filters
+                    .into_iter()
+                    .map(|(filter, qos)| (filter.into_owned().into(), qos))
+                    .collect(),
+            },
+            Packet::SubscribeAck { packet_id, status } => Packet::SubscribeAck {
+                packet_id,
+                status,
+            },
+            Packet::Unsubscribe {
+                packet_id,
+                topic_filters,
+            } => Packet::Unsubscribe {
+                packet_id,
+                topic_filters: topic_filters
+                    .into_iter()
+                    .map(|filter| filter.into_owned().into())
+                    .collect(),
+            },
+            Packet::UnsubscribeAck { packet_id } => Packet::UnsubscribeAck { packet_id },
+            Packet::PingRequest => Packet::PingRequest,
+            Packet::PingResponse => Packet::PingResponse,
+            Packet::Disconnect => Packet::Disconnect,
         }
     }
 }
