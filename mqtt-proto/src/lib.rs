@@ -16,5 +16,9 @@ extern crate tokio_service;
 extern crate mqtt_core as core;
 
 mod codec;
+mod proto;
+mod service;
 
 pub use codec::Codec;
+pub use proto::Proto;
+pub use service::MQTT3;

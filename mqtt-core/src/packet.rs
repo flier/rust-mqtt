@@ -97,6 +97,11 @@ pub enum SubscribeReturnCode {
     Failure,
 }
 
+/// Packet Identifier
+///
+/// The variable header component of many of the Control Packet types includes a 2 byte Packet Identifier field.
+pub type PacketId = u16;
+
 /// MQTT Control Packets
 #[derive(Debug, PartialEq, Clone)]
 pub enum Packet<'a> {
@@ -121,6 +126,10 @@ pub enum Packet<'a> {
         /// enables a Client to establish whether the Client and Server have a consistent view
         /// about whether there is already stored Session state.
         session_present: bool,
+        /// If a well formed CONNECT Packet is received by the Server,
+        /// but the Server is unable to process it for some reason,
+        /// then the Server SHOULD attempt to send a CONNACK packet
+        /// containing the appropriate non-zero Connect return code from this table.
         return_code: ConnectReturnCode,
     },
     /// Publish message
@@ -140,47 +149,47 @@ pub enum Packet<'a> {
     /// Publish acknowledgment
     PublishAck {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
     },
     /// Publish received (assured delivery part 1)
     PublishReceived {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
     },
     /// Publish release (assured delivery part 2)
     PublishRelease {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
     },
     /// Publish complete (assured delivery part 3)
     PublishComplete {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
     },
     /// Client subscribe request
     Subscribe {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
         /// the list of Topic Filters and QoS to which the Client wants to subscribe.
         topic_filters: Vec<(Cow<'a, str>, QoS)>,
     },
     /// Subscribe acknowledgment
     SubscribeAck {
-        packet_id: u16,
+        packet_id: PacketId,
         /// corresponds to a Topic Filter in the SUBSCRIBE Packet being acknowledged.
         status: Vec<SubscribeReturnCode>,
     },
     /// Unsubscribe request
     Unsubscribe {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
         /// the list of Topic Filters that the Client wishes to unsubscribe from.
         topic_filters: Vec<Cow<'a, str>>,
     },
     /// Unsubscribe acknowledgment
     UnsubscribeAck {
         /// Packet Identifier
-        packet_id: u16,
+        packet_id: PacketId,
     },
     /// PING request
     PingRequest,
@@ -234,6 +243,20 @@ impl<'a> Packet<'a> {
             Packet::Subscribe { .. } |
             Packet::Unsubscribe { .. } => 0b0010,
             _ => 0,
+        }
+    }
+
+    pub fn packet_id(&self) -> Option<PacketId> {
+        match *self {
+            Packet::PublishAck { packet_id } |
+            Packet::PublishReceived { packet_id } |
+            Packet::PublishRelease { packet_id } |
+            Packet::PublishComplete { packet_id } |
+            Packet::Subscribe { packet_id, .. } |
+            Packet::SubscribeAck { packet_id, .. } |
+            Packet::Unsubscribe { packet_id, .. } |
+            Packet::UnsubscribeAck { packet_id } => Some(packet_id),
+            _ => None,
         }
     }
 

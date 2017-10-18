@@ -16,8 +16,8 @@ mod packet;
 mod encode;
 mod decode;
 
-pub use proto::{Protocol, PacketId, ClientId, QoS};
-pub use packet::{ConnectFlags, ConnectAckFlags, Packet, LastWill, ConnectReturnCode, FixedHeader,
-                 PacketType, SubscribeReturnCode};
+pub use decode::{ReadPacketExt, decode_variable_length_usize, read_packet};
 pub use encode::WritePacketExt;
-pub use decode::{ReadPacketExt, read_packet, decode_variable_length_usize};
+pub use packet::{ConnectAckFlags, ConnectFlags, ConnectReturnCode, FixedHeader, LastWill, Packet,
+                 PacketId, PacketType, SubscribeReturnCode};
+pub use proto::{ClientId, Protocol, QoS};

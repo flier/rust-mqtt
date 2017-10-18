@@ -1,7 +1,7 @@
 use std::fmt::{self, Display, Formatter};
 use std::ops::Deref;
 
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 #[doc(hidden)]
 #[macro_export]
@@ -103,6 +103,3 @@ impl Display for ClientId {
         f.write_str(&self.0)
     }
 }
-
-/// Packet Identifier
-pub type PacketId = u16;
