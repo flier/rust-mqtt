@@ -1,16 +1,17 @@
+use std::borrow::Cow;
 use std::rc::Rc;
 use std::time::Duration;
 
 use slab::Slab;
 
-use error::*;
 use core::*;
+use error::*;
 use transport::{self, Transport};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Message<'a> {
-    pub topic: &'a str,
-    pub payload: &'a [u8],
+    pub topic: Cow<'a, str>,
+    pub payload: Cow<'a, [u8]>,
     pub qos: QoS,
 }
 
@@ -74,15 +75,15 @@ impl<'a, H: Handler> Session<'a, H> {
             keep_alive: keep_alive,
             last_will: last_will.map(|msg| {
                 LastWill {
-                    topic: msg.topic,
-                    message: msg.payload,
+                    topic: msg.topic.clone().into(),
+                    message: msg.payload.clone().into(),
                     qos: msg.qos,
                     retain: false,
                 }
             }),
-            client_id: client_id,
-            username: auth.map(|(username, _)| username),
-            password: auth.map(|(_, password)| password),
+            client_id: client_id.as_ref().into(),
+            username: auth.map(|(username, _)| username.into()),
+            password: auth.map(|(_, password)| password.into()),
         }
     }
 
@@ -95,9 +96,9 @@ impl<'a, H: Handler> Session<'a, H> {
                         dup: false,
                         retain: false,
                         qos: msg.qos,
-                        topic: msg.topic,
+                        topic: msg.topic.clone().into(),
                         packet_id: Some(packet_id),
-                        payload: msg.payload,
+                        payload: msg.payload.clone().into(),
                     }
                 }
                 Waiting::PublishComplete { packet_id } => {
@@ -109,7 +110,10 @@ impl<'a, H: Handler> Session<'a, H> {
                 } => {
                     Packet::Subscribe {
                         packet_id: packet_id,
-                        topic_filters: From::from(*topic_filters),
+                        topic_filters: topic_filters
+                            .iter()
+                            .map(|&(filter, qos)| (filter.into(), qos))
+                            .collect(),
                     }
                 }
                 Waiting::UnsubscribeAck {
@@ -118,7 +122,7 @@ impl<'a, H: Handler> Session<'a, H> {
                 } => {
                     Packet::Unsubscribe {
                         packet_id: packet_id,
-                        topic_filters: From::from(*topic_filters),
+                        topic_filters: topic_filters.iter().map(|&filter| filter.into()).collect(),
                     }
                 }
             })
@@ -138,12 +142,12 @@ impl<'a, H: Handler> Session<'a, H> {
             dup: false,
             retain: false,
             qos: msg.qos,
-            topic: msg.topic,
+            topic: msg.topic.clone().into(),
             packet_id: match msg.qos {
                 QoS::AtLeastOnce | QoS::ExactlyOnce => Some(self.wait_reply(msg.clone())),
                 _ => None,
             },
-            payload: msg.payload,
+            payload: msg.payload.clone().into(),
         }
     }
 
@@ -232,7 +236,10 @@ impl<'a, H: Handler> Session<'a, H> {
 
         Packet::Subscribe {
             packet_id: packet_id,
-            topic_filters: From::from(topic_filters),
+            topic_filters: topic_filters
+                .iter()
+                .map(|&(filter, qos)| (filter.into(), qos))
+                .collect(),
         }
     }
 
@@ -265,7 +272,7 @@ impl<'a, H: Handler> Session<'a, H> {
 
         Packet::Unsubscribe {
             packet_id: packet_id,
-            topic_filters: From::from(topic_filters),
+            topic_filters: topic_filters.iter().map(|&filter| filter.into()).collect(),
         }
     }
 
@@ -339,9 +346,9 @@ impl<'a, T: Transport, H: 'a + Handler> transport::Handler<'a> for Client<'a, T,
                 dup,
                 retain,
                 qos,
-                topic,
+                ref topic,
                 packet_id,
-                payload,
+                ref payload,
             } => {
                 self.session
                     .on_publish(
@@ -349,8 +356,8 @@ impl<'a, T: Transport, H: 'a + Handler> transport::Handler<'a> for Client<'a, T,
                         retain,
                         packet_id,
                         Rc::new(Message {
-                            topic: topic,
-                            payload: payload,
+                            topic: topic.clone(),
+                            payload: payload.clone(),
                             qos: qos,
                         }),
                     )

@@ -88,6 +88,10 @@ impl ClientId {
     pub fn with_size(size: usize) -> ClientId {
         ClientId(thread_rng().gen_ascii_chars().take(size).collect())
     }
+
+    pub fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
 }
 
 impl Deref for ClientId {
