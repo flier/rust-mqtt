@@ -17,4 +17,4 @@ pub use proto::{Protocol, PacketId, ClientId, QoS};
 pub use packet::{ConnectFlags, ConnectAckFlags, Packet, LastWill, ConnectReturnCode, FixedHeader,
                  PacketType, SubscribeReturnCode};
 pub use encode::WritePacketExt;
-pub use decode::{ReadPacketExt, read_packet};
+pub use decode::{ReadPacketExt, read_packet, decode_variable_length_usize};

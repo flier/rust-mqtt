@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use proto::{Protocol, QoS};
 
 bitflags! {
@@ -83,9 +85,9 @@ pub struct LastWill<'a> {
     /// the Will Message is to be Retained when it is published.
     pub retain: bool,
     /// the Will Topic
-    pub topic: &'a str,
+    pub topic: Cow<'a, str>,
     /// defines the Application Message that is to be published to the Will Topic
-    pub message: &'a [u8],
+    pub message: Cow<'a, [u8]>,
 }
 
 /// Subscribe Return Code
@@ -108,11 +110,11 @@ pub enum Packet<'a> {
         /// Will Message be stored on the Server and associated with the Network Connection.
         last_will: Option<LastWill<'a>>,
         /// identifies the Client to the Server.
-        client_id: &'a str,
+        client_id: Cow<'a, str>,
         /// username can be used by the Server for authentication and authorization.
-        username: Option<&'a str>,
+        username: Option<Cow<'a, str>>,
         /// password can be used by the Server for authentication and authorization.
-        password: Option<&'a [u8]>,
+        password: Option<Cow<'a, [u8]>>,
     },
     /// Connect acknowledgment
     ConnectAck {
@@ -129,11 +131,11 @@ pub enum Packet<'a> {
         /// the level of assurance for delivery of an Application Message.
         qos: QoS,
         /// the information channel to which payload data is published.
-        topic: &'a str,
+        topic: Cow<'a, str>,
         /// only present in PUBLISH Packets where the QoS level is 1 or 2.
         packet_id: Option<u16>,
         /// the Application Message that is being published.
-        payload: &'a [u8],
+        payload: Cow<'a, [u8]>,
     },
     /// Publish acknowledgment
     PublishAck {
@@ -160,7 +162,7 @@ pub enum Packet<'a> {
         /// Packet Identifier
         packet_id: u16,
         /// the list of Topic Filters and QoS to which the Client wants to subscribe.
-        topic_filters: Vec<(&'a str, QoS)>,
+        topic_filters: Vec<(Cow<'a, str>, QoS)>,
     },
     /// Subscribe acknowledgment
     SubscribeAck {
@@ -173,7 +175,7 @@ pub enum Packet<'a> {
         /// Packet Identifier
         packet_id: u16,
         /// the list of Topic Filters that the Client wishes to unsubscribe from.
-        topic_filters: Vec<&'a str>,
+        topic_filters: Vec<Cow<'a, str>>,
     },
     /// Unsubscribe acknowledgment
     UnsubscribeAck {

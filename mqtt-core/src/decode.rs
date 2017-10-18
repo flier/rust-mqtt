@@ -1,4 +1,5 @@
 use std::str;
+use std::borrow::Cow;
 
 use nom::{be_u8, be_u16, IResult, Needed, ErrorKind, IError};
 use nom::IResult::{Done, Incomplete, Error};
@@ -52,7 +53,25 @@ pub fn decode_variable_length_usize(i: &[u8]) -> IResult<&[u8], usize> {
 }
 
 named!(pub decode_length_bytes, length_bytes!(be_u16));
-named!(pub decode_utf8_str<&str>, map_res!(length_bytes!(be_u16), str::from_utf8));
+
+fn decode_utf8_str<'a>(i: &'a [u8]) -> IResult<&'a [u8], Cow<'a, str>> {
+    match be_u16(i) {
+        Done(remaining, len) => {
+            let len = len as usize;
+
+            if remaining.len() < len {
+                IResult::Incomplete(Needed::Size(len - remaining.len()))
+            } else {
+                IResult::Done(
+                    &remaining[len..],
+                    unsafe { str::from_utf8_unchecked(&remaining[..len]) }.into(),
+                )
+            }
+        }
+        Error(err) => Error(err),
+        Incomplete(needed) => Incomplete(needed),
+    }
+}
 
 named!(pub decode_fixed_header<FixedHeader>, do_parse!(
     b0: bits!( pair!( take_bits!( u8, 4 ), take_bits!( u8, 4 ) ) ) >>
@@ -101,10 +120,10 @@ named!(pub decode_connect_header<Packet>, do_parse!(
                 qos: QoS::from((flags & ConnectFlags::WILL_QOS.bits()) >> WILL_QOS_SHIFT),
                 retain: is_flag_set!(flags, ConnectFlags::WILL_RETAIN),
                 topic: topic.unwrap(),
-                message: message.unwrap(),
+                message: message.unwrap().into(),
             }) } else { None },
-            username: username,
-            password: password,
+            username: username.into(),
+            password: password.map(Cow::from),
         }
     )
 ));
@@ -120,7 +139,19 @@ named!(pub decode_connect_ack_header<(ConnectAckFlags, ConnectReturnCode)>, do_p
     )
 ));
 
-named!(pub decode_publish_header<(&str, u16)>, pair!(decode_utf8_str, be_u16));
+pub fn decode_publish_header<'a>(i: &'a [u8]) -> IResult<&'a [u8], (Cow<'a, str>, u16)> {
+    match decode_utf8_str(i) {
+        Done(remaining, topic) => {
+            match be_u16(remaining) {
+                Done(remaining, packet_id) => Done(remaining, (topic, packet_id)),
+                Error(err) => Error(err),
+                Incomplete(needed) => Incomplete(needed),
+            }
+        }
+        Error(err) => Error(err),
+        Incomplete(needed) => Incomplete(needed),
+    }
+}
 
 named!(pub decode_subscribe_header<Packet>, do_parse!(
     packet_id: be_u16 >>
@@ -128,8 +159,8 @@ named!(pub decode_subscribe_header<Packet>, do_parse!(
     (
         Packet::Subscribe {
             packet_id: packet_id,
-            topic_filters: topic_filters.iter()
-                                        .map(|&(filter, flags)| (filter, QoS::from(flags & 0x03)))
+            topic_filters: topic_filters.into_iter()
+                                        .map(|(filter, flags)| (filter, QoS::from(flags & 0x03)))
                                         .collect(),
         }
     )
@@ -197,7 +228,7 @@ fn decode_variable_header<'a>(i: &[u8], fixed_header: FixedHeader) -> IResult<&[
                             qos: qos,
                             topic: topic,
                             packet_id: packet_id,
-                            payload: i,
+                            payload: i.into(),
                         },
                     )
                 }
@@ -280,6 +311,8 @@ pub fn read_packet(i: &[u8]) -> Result<(&[u8], Packet), IError> {
 mod tests {
     extern crate env_logger;
 
+    use std::borrow::Cow;
+
     use nom::{Needed, ErrorKind};
     use nom::IResult::{Done, Incomplete, Error};
 
@@ -359,10 +392,10 @@ mod tests {
                     protocol: Protocol::MQTT(4),
                     clean_session: false,
                     keep_alive: 60,
-                    client_id: "12345",
+                    client_id: Cow::from("12345"),
                     last_will: None,
-                    username: Some("user"),
-                    password: Some(b"pass"),
+                    username: Some(Cow::from("user")),
+                    password: Some(Cow::from(&b"pass"[..])),
                 },
             )
         );
@@ -377,12 +410,12 @@ mod tests {
                     protocol: Protocol::MQTT(4),
                     clean_session: false,
                     keep_alive: 60,
-                    client_id: "12345",
+                    client_id: Cow::from("12345"),
                     last_will: Some(LastWill {
                         qos: QoS::ExactlyOnce,
                         retain: false,
-                        topic: "topic",
-                        message: b"message",
+                        topic: Cow::from("topic"),
+                        message: Cow::from(&b"message"[..]),
                     }),
                     username: None,
                     password: None,
@@ -441,7 +474,7 @@ mod tests {
     fn test_decode_publish_packets() {
         assert_eq!(
             decode_publish_header(b"\x00\x05topic\x12\x34"),
-            Done(&b""[..], ("topic", 0x1234))
+            Done(&b""[..], (Cow::from("topic"), 0x1234))
         );
 
         assert_eq!(
@@ -452,9 +485,9 @@ mod tests {
                     dup: true,
                     retain: true,
                     qos: QoS::ExactlyOnce,
-                    topic: "topic",
+                    topic: Cow::from("topic"),
                     packet_id: Some(0x4321),
-                    payload: b"data",
+                    payload: (&b"data"[..]).into(),
                 },
             )
         );
@@ -466,9 +499,9 @@ mod tests {
                     dup: false,
                     retain: false,
                     qos: QoS::AtMostOnce,
-                    topic: "topic",
+                    topic: Cow::from("topic"),
                     packet_id: None,
-                    payload: b"data",
+                    payload: (&b"data"[..]).into(),
                 },
             )
         );
@@ -495,7 +528,10 @@ mod tests {
     fn test_decode_subscribe_packets() {
         let p = Packet::Subscribe {
             packet_id: 0x1234,
-            topic_filters: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce)],
+            topic_filters: vec![
+                (Cow::from("test"), QoS::AtLeastOnce),
+                (Cow::from("filter"), QoS::ExactlyOnce),
+            ],
         };
 
         assert_eq!(
@@ -528,7 +564,7 @@ mod tests {
 
         let p = Packet::Unsubscribe {
             packet_id: 0x1234,
-            topic_filters: vec!["test", "filter"],
+            topic_filters: vec![Cow::from("test"), Cow::from("filter")],
         };
 
         assert_eq!(

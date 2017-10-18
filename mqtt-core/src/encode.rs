@@ -33,9 +33,9 @@ pub trait WritePacketHelper: io::Write {
         match *packet {
             Packet::Connect {
                 ref last_will,
-                client_id,
-                username,
-                password,
+                ref client_id,
+                ref username,
+                ref password,
                 ..
             } => {
                 // Protocol Name + Protocol Level + Connect Flags + Keep Alive
@@ -45,15 +45,20 @@ pub trait WritePacketHelper: io::Write {
                 n += 2 + client_id.len();
 
                 // Will Topic + Will Message
-                if let &Some(LastWill { topic, message, .. }) = last_will {
+                if let &Some(LastWill {
+                                 ref topic,
+                                 ref message,
+                                 ..
+                             }) = last_will
+                {
                     n += 2 + topic.len() + 2 + message.len();
                 }
 
-                if let Some(s) = username {
+                if let Some(s) = username.as_ref() {
                     n += 2 + s.len();
                 }
 
-                if let Some(s) = password {
+                if let Some(s) = password.as_ref() {
                     n += 2 + s.len();
                 }
 
@@ -63,9 +68,9 @@ pub trait WritePacketHelper: io::Write {
             Packet::ConnectAck { .. } => 2, // Flags + Return Code
 
             Packet::Publish {
-                topic,
+                ref topic,
                 packet_id,
-                payload,
+                ref payload,
                 ..
             } => {
                 // Topic + Packet Id + Payload
@@ -80,7 +85,7 @@ pub trait WritePacketHelper: io::Write {
 
             Packet::Subscribe { ref topic_filters, .. } => {
                 2 +
-                    topic_filters.iter().fold(0, |acc, &(filter, _)| {
+                    topic_filters.iter().fold(0, |acc, &(ref filter, _)| {
                         acc + 2 + filter.len() + 1
                     })
             }
@@ -89,10 +94,9 @@ pub trait WritePacketHelper: io::Write {
 
             Packet::Unsubscribe { ref topic_filters, .. } => {
                 2 +
-                    topic_filters.iter().fold(
-                        0,
-                        |acc, &filter| acc + 2 + filter.len(),
-                    )
+                    topic_filters.iter().fold(0, |acc, ref filter| {
+                        acc + 2 + filter.len()
+                    })
             }
 
             Packet::PingRequest | Packet::PingResponse | Packet::Disconnect => 0,
@@ -108,9 +112,9 @@ pub trait WritePacketHelper: io::Write {
                 clean_session,
                 keep_alive,
                 ref last_will,
-                client_id,
-                username,
-                password,
+                ref client_id,
+                ref username,
+                ref password,
             } => {
                 n += self.write_utf8_str(protocol.name())?;
 
@@ -144,19 +148,24 @@ pub trait WritePacketHelper: io::Write {
                 self.write_u16::<BigEndian>(keep_alive)?;
                 n += 2;
 
-                n += self.write_utf8_str(client_id)?;
+                n += self.write_utf8_str(&client_id)?;
 
-                if let &Some(LastWill { topic, message, .. }) = last_will {
-                    n += self.write_utf8_str(topic)?;
-                    n += self.write_fixed_length_bytes(message)?;
+                if let &Some(LastWill {
+                                 ref topic,
+                                 ref message,
+                                 ..
+                             }) = last_will
+                {
+                    n += self.write_utf8_str(&topic)?;
+                    n += self.write_fixed_length_bytes(&message)?;
                 }
 
-                if let Some(s) = username {
-                    n += self.write_utf8_str(s)?;
+                if let Some(s) = username.as_ref() {
+                    n += self.write_utf8_str(&s)?;
                 }
 
-                if let Some(s) = password {
-                    n += self.write_fixed_length_bytes(s)?;
+                if let Some(s) = password.as_ref() {
+                    n += self.write_fixed_length_bytes(&s)?;
                 }
             }
 
@@ -174,12 +183,12 @@ pub trait WritePacketHelper: io::Write {
 
             Packet::Publish {
                 qos,
-                topic,
+                ref topic,
                 packet_id,
-                payload,
+                ref payload,
                 ..
             } => {
-                n += self.write_utf8_str(topic)?;
+                n += self.write_utf8_str(&topic)?;
 
                 if qos == QoS::AtLeastOnce || qos == QoS::ExactlyOnce {
                     self.write_u16::<BigEndian>(packet_id.unwrap())?;
@@ -187,7 +196,7 @@ pub trait WritePacketHelper: io::Write {
                     n += 2;
                 }
 
-                n += self.write(payload)?;
+                n += self.write(&payload)?;
             }
 
             Packet::PublishAck { packet_id } |
@@ -208,8 +217,8 @@ pub trait WritePacketHelper: io::Write {
 
                 n += 2;
 
-                for &(filter, qos) in topic_filters {
-                    n += self.write_utf8_str(filter)? + self.write(&[qos.into()])?;
+                for &(ref filter, qos) in topic_filters {
+                    n += self.write_utf8_str(&filter)? + self.write(&[qos as u8])?;
                 }
             }
 
@@ -323,6 +332,8 @@ impl<W: io::Write + ?Sized> WritePacketExt for W {}
 mod tests {
     extern crate env_logger;
 
+    use std::borrow::Cow;
+
     use decode::*;
     use super::*;
 
@@ -367,13 +378,15 @@ mod tests {
 
         v.clear();
 
+        let payload = (0..255).map(|b| b).collect::<Vec<u8>>();
+
         let p = Packet::Publish {
             dup: true,
             retain: true,
             qos: QoS::ExactlyOnce,
-            topic: "topic",
+            topic: Cow::from("topic"),
             packet_id: Some(0x4321),
-            payload: &(0..255).map(|b| b).collect::<Vec<u8>>(),
+            payload: Cow::from(&payload[..]),
         };
 
         assert_eq!(v.calc_content_size(&p), 264);
@@ -397,10 +410,10 @@ mod tests {
                 protocol: Protocol::MQTT(4),
                 clean_session: false,
                 keep_alive: 60,
-                client_id: "12345",
+                client_id: Cow::from("12345"),
                 last_will: None,
-                username: Some("user"),
-                password: Some(b"pass"),
+                username: Some(Cow::from("user")),
+                password: Some(Cow::from(&b"pass"[..])),
             },
             &b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\
 \x0512345\x00\x04user\x00\x04pass"[..]
@@ -411,12 +424,12 @@ mod tests {
                 protocol: Protocol::MQTT(4),
                 clean_session: false,
                 keep_alive: 60,
-                client_id: "12345",
+                client_id: Cow::from("12345"),
                 last_will: Some(LastWill {
                     qos: QoS::ExactlyOnce,
                     retain: false,
-                    topic: "topic",
-                    message: b"message",
+                    topic: Cow::from("topic"),
+                    message: Cow::from(&b"message"[..]),
                 }),
                 username: None,
                 password: None,
@@ -435,9 +448,9 @@ mod tests {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
-                topic: "topic",
+                topic: Cow::from("topic"),
                 packet_id: Some(0x4321),
-                payload: b"data",
+                payload: Cow::from(&b"data"[..]),
             },
             b"\x3d\x0D\x00\x05topic\x43\x21data"
         );
@@ -447,9 +460,9 @@ mod tests {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
-                topic: "topic",
+                topic: Cow::from("topic"),
                 packet_id: None,
-                payload: b"data",
+                payload: Cow::from(&b"data"[..]),
             },
             b"\x30\x0b\x00\x05topicdata"
         );
@@ -460,7 +473,10 @@ mod tests {
         assert_packet!(
             Packet::Subscribe {
                 packet_id: 0x1234,
-                topic_filters: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce)],
+                topic_filters: vec![
+                    (Cow::from("test"), QoS::AtLeastOnce),
+                    (Cow::from("filter"), QoS::ExactlyOnce),
+                ],
             },
             b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02"
         );
@@ -480,7 +496,7 @@ mod tests {
         assert_packet!(
             Packet::Unsubscribe {
                 packet_id: 0x1234,
-                topic_filters: vec!["test", "filter"],
+                topic_filters: vec![Cow::from("test"), Cow::from("filter")],
             },
             b"\xa2\x10\x12\x34\x00\x04test\x00\x06filter"
         );
