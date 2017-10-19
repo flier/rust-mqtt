@@ -17,6 +17,21 @@ pub struct Conn<'a, A> {
     inner: Inner<'a, A>,
 }
 
+impl<'a, A> Conn<'a, A> {
+    pub fn new(
+        sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
+        auth_manager: Option<Rc<RefCell<A>>>,
+    ) -> Self {
+        Conn {
+            inner: Inner {
+                state: Rc::new(RefCell::new(State::Disconnected)),
+                sessions,
+                auth_manager,
+            },
+        }
+    }
+}
+
 impl<'a, A> Service for Conn<'a, A>
 where
     A: AuthManager,
@@ -92,7 +107,7 @@ where
 struct Inner<'a, A> {
     state: Rc<RefCell<State>>,
     sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
-    accounts: Option<Rc<RefCell<A>>>,
+    auth_manager: Option<Rc<RefCell<A>>>,
 }
 
 impl<'a, A> Inner<'a, A>
@@ -138,8 +153,8 @@ where
             self.sessions.borrow_mut().remove(&client_id);
         }
 
-        if let Some(ref accounts) = self.accounts {
-            if accounts
+        if let Some(ref auth_manager) = self.auth_manager {
+            if auth_manager
                 .borrow_mut()
                 .auth(client_id.as_str().into(), username, password)
                 .is_err()
