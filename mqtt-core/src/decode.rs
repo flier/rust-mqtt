@@ -132,11 +132,13 @@ named!(pub decode_connect_header<Packet>, do_parse!(
 
 named!(pub decode_connect_ack_header<(ConnectAckFlags, ConnectReturnCode)>, do_parse!(
     flags: be_u8 >>
+
+    // Byte 1 is the "Connect Acknowledge Flags". Bits 7-1 are reserved and MUST be set to 0.
     error_if!((flags & 0b1111_1110) != 0, RESERVED_FLAG) >>
 
     return_code: be_u8 >>
     (
-        ConnectAckFlags::from_bits_truncate(flags),
+        ConnectAckFlags::from_bits_truncate(flags), // Bit 0 (SP1) is the Session Present Flag.
         ConnectReturnCode::from(return_code)
     )
 ));
@@ -245,22 +247,50 @@ fn decode_variable_header(i: &[u8], fixed_header: FixedHeader) -> IResult<&[u8],
             be_u16(i).map(|packet_id| Packet::PublishReceived { packet_id: packet_id })
         }
         PacketType::PUBREL => {
-            be_u16(i).map(|packet_id| Packet::PublishRelease { packet_id: packet_id })
+            // Bits 3,2,1 and 0 of the fixed header in the PUBREL Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively.
+            // The Server MUST treat any other value as malformed and close the Network Connection [MQTT-3.6.1-1].
+            if fixed_header.packet_flags == 0b0010 {
+                be_u16(i).map(|packet_id| Packet::PublishRelease { packet_id: packet_id })
+            } else {
+                Error(error_position!(ErrorKind::Custom(RESERVED_FLAG), i))
+            }
         }
         PacketType::PUBCOMP => {
             be_u16(i).map(|packet_id| Packet::PublishComplete { packet_id: packet_id })
         }
 
-        PacketType::SUBSCRIBE => decode_subscribe_header(i),
+        PacketType::SUBSCRIBE => {
+            // Bits 3,2,1 and 0 of the fixed header in the PUBREL Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively.
+            // The Server MUST treat any other value as malformed and close the Network Connection [MQTT-3.6.1-1].
+            if fixed_header.packet_flags == 0b0010 {
+                decode_subscribe_header(i)
+            } else {
+                Error(error_position!(ErrorKind::Custom(RESERVED_FLAG), i))
+            }
+        }
         PacketType::SUBACK => decode_subscribe_ack_header(i),
-        PacketType::UNSUBSCRIBE => decode_unsubscribe_header(i),
+        PacketType::UNSUBSCRIBE => {
+            // Bits 3,2,1 and 0 of the fixed header in the PUBREL Control Packet are reserved and MUST be set to 0,0,1 and 0 respectively.
+            // The Server MUST treat any other value as malformed and close the Network Connection [MQTT-3.6.1-1].
+            if fixed_header.packet_flags == 0b0010 {
+                decode_unsubscribe_header(i)
+            } else {
+                Error(error_position!(ErrorKind::Custom(RESERVED_FLAG), i))
+            }
+        }
         PacketType::UNSUBACK => {
             be_u16(i).map(|packet_id| Packet::UnsubscribeAck { packet_id: packet_id })
         }
 
         PacketType::PINGREQ => Done(i, Packet::PingRequest),
         PacketType::PINGRESP => Done(i, Packet::PingResponse),
-        PacketType::DISCONNECT => Done(i, Packet::Disconnect),
+        PacketType::DISCONNECT => {
+            if fixed_header.packet_flags == 0 {
+                Done(i, Packet::Disconnect)
+            } else {
+                Error(error_position!(ErrorKind::Custom(RESERVED_FLAG), i))
+            }
+        }
         _ => {
             let err_code = UNSUPPORT_PACKET_TYPE + (fixed_header.packet_type as u32);
             Error(error_position!(ErrorKind::Custom(err_code), i))
@@ -517,7 +547,7 @@ mod tests {
             Done(&b""[..], Packet::PublishReceived { packet_id: 0x4321 })
         );
         assert_eq!(
-            decode_packet(b"\x60\x02\x43\x21"),
+            decode_packet(b"\x62\x02\x43\x21"),
             Done(&b""[..], Packet::PublishRelease { packet_id: 0x4321 })
         );
         assert_eq!(
