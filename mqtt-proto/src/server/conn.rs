@@ -322,14 +322,14 @@ pub mod tests {
     }
 
     #[test]
-    fn request_before_connect() {
+    fn test_request_before_connect() {
         // After a Network Connection is established by a Client to a Server,
         // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
         assert_matches!(new_test_conn().call(Packet::PingRequest).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
     }
 
     #[test]
-    fn connect_with_unacceptable_protocol_version() {
+    fn test_connect_with_unacceptable_protocol_version() {
         // The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01 (unacceptable protocol level)
         // and then disconnect the Client if the Protocol Level is not supported by the Server [MQTT-3.1.2-2].
         assert_matches!(new_test_conn().call(Packet::Connect {
@@ -347,7 +347,7 @@ pub mod tests {
     }
 
     #[test]
-    fn missing_client_id() {
+    fn test_missing_client_id() {
         /// The Client Identifier (ClientId) MUST be present and MUST be the first field in the CONNECT packet payload [MQTT-3.1.3-3].
         assert_matches!(new_test_conn().call(Packet::Connect {
             protocol: Protocol::default(),
@@ -364,7 +364,7 @@ pub mod tests {
     }
 
     #[test]
-    fn invalid_client_id() {
+    fn test_invalid_client_id() {
         // The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length,
         // and that contain only the characters
         // "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" [MQTT-3.1.3-5].
@@ -383,7 +383,7 @@ pub mod tests {
     }
 
     #[test]
-    fn connect_with_last_will() {
+    fn test_connect_with_last_will() {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -400,7 +400,7 @@ pub mod tests {
     }
 
     #[test]
-    fn disconnect_should_clear_last_will() {
+    fn test_disconnect_should_clear_last_will() {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -422,7 +422,7 @@ pub mod tests {
     }
 
     #[test]
-    fn resume_session() {
+    fn test_resume_session() {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -450,7 +450,7 @@ pub mod tests {
     }
 
     #[test]
-    fn clear_session() {
+    fn test_clear_session() {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -499,7 +499,7 @@ pub mod tests {
     }
 
     #[test]
-    fn duplicate_connect_request() {
+    fn test_duplicate_connect_request() {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -525,7 +525,7 @@ pub mod tests {
     }
 
     #[test]
-    fn ping_request() {
+    fn test_ping_request() {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
