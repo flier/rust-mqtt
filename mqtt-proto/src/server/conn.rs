@@ -105,7 +105,7 @@ where
 
 #[derive(Debug)]
 struct Inner<'a, A> {
-    state: Rc<RefCell<State>>,
+    state: Rc<RefCell<State<'a>>>,
     sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
     auth_manager: Option<Rc<RefCell<A>>>,
 }
@@ -147,6 +147,8 @@ where
 
                 // TODO resume session
 
+                self.state.borrow_mut().connected(Rc::clone(&session));
+
                 return Ok((Rc::clone(session), false));
             }
         } else {
@@ -176,11 +178,13 @@ where
             Rc::clone(&session),
         );
 
+        self.state.borrow_mut().connected(Rc::clone(&session));
+
         Ok((session, true))
     }
 
     pub fn disconnect(&self) {
-        self.state.borrow_mut().disconnect()
+        self.state.borrow_mut().disconnected()
     }
 
     pub fn touch(&self) -> Result<()> {
