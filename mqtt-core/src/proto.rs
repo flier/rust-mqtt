@@ -76,6 +76,10 @@ pub enum QoS {
 
 const_enum!(QoS: u8);
 
+pub const MAX_CLIENT_ID_LENGTH: usize = 23;
+pub const CLIENT_ID_CHARS: &[u8] =
+    b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
 /// A unique Client identifier for the Client
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct ClientId(String);
@@ -83,6 +87,14 @@ pub struct ClientId(String);
 impl ClientId {
     pub fn new() -> ClientId {
         Self::with_size(16)
+    }
+
+    /// 3.1.3.1 Client Identifier
+    pub fn is_valid<S: AsRef<str>>(s: S) -> bool {
+        let s = s.as_ref();
+
+        !s.is_empty() && s.len() <= MAX_CLIENT_ID_LENGTH &&
+            s.bytes().all(|b| CLIENT_ID_CHARS.contains(&b))
     }
 
     pub fn with_size(size: usize) -> ClientId {

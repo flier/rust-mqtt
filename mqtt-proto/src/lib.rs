@@ -15,10 +15,10 @@ extern crate tokio_service;
 
 extern crate mqtt_core as core;
 
+pub mod errors;
 mod codec;
 mod proto;
-mod service;
+pub mod server;
 
 pub use codec::Codec;
 pub use proto::Proto;
-pub use service::MQTT3;

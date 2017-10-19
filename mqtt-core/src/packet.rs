@@ -90,6 +90,17 @@ pub struct LastWill<'a> {
     pub message: Cow<'a, [u8]>,
 }
 
+impl<'a> LastWill<'a> {
+    pub fn into_owned(self) ->LastWill<'static> {
+        LastWill {
+            qos: self.qos,
+            retain: self.retain,
+            topic: self.topic.into_owned().into(),
+            message: self.message.into_owned().into()
+        }
+    }
+}
+
 /// Subscribe Return Code
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SubscribeReturnCode {
