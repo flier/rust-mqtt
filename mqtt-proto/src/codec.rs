@@ -41,7 +41,7 @@ impl<'a> Decoder for Codec<'a> {
                     trace!("decode {} bytes to packet", size);
 
                     Ok(Some((
-                        packet.packet_id().unwrap_or(0) as RequestId,
+                        RequestId::from(packet.packet_id().unwrap_or(0)),
                         packet.into_owned(),
                     )))
                 }

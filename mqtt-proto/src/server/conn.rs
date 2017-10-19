@@ -13,16 +13,16 @@ use server::{AuthManager, Session, State};
 
 /// MQTT service
 #[derive(Debug)]
-pub struct Conn<'a, A> {
+pub struct ServerConn<'a, A> {
     inner: Inner<'a, A>,
 }
 
-impl<'a, A> Conn<'a, A> {
+impl<'a, A> ServerConn<'a, A> {
     pub fn new(
         sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
         auth_manager: Option<Rc<RefCell<A>>>,
     ) -> Self {
-        Conn {
+        ServerConn {
             inner: Inner {
                 state: Rc::new(RefCell::new(State::Disconnected)),
                 sessions,
@@ -32,7 +32,7 @@ impl<'a, A> Conn<'a, A> {
     }
 }
 
-impl<'a, A> Service for Conn<'a, A>
+impl<'a, A> Service for ServerConn<'a, A>
 where
     A: AuthManager,
 {
@@ -59,7 +59,7 @@ where
                 match self.inner.connect(
                     protocol,
                     clean_session,
-                    Duration::from_secs(keep_alive as u64),
+                    Duration::from_secs(u64::from(keep_alive)),
                     last_will,
                     client_id.into_owned(),
                     username,
@@ -147,7 +147,7 @@ where
 
                 // TODO resume session
 
-                return Ok((session.clone(), false));
+                return Ok((Rc::clone(session), false));
             }
         } else {
             self.sessions.borrow_mut().remove(&client_id);
@@ -173,7 +173,7 @@ where
 
         self.sessions.borrow_mut().insert(
             client_id,
-            session.clone(),
+            Rc::clone(&session),
         );
 
         Ok((session, true))
