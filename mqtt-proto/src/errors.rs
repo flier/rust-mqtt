@@ -9,6 +9,7 @@ error_chain! {
             description("connect failed")
             display("connect failed, {:?}", code)
         }
+        ProtocolViolation
         InvalidRequest
         Disconnected
     }

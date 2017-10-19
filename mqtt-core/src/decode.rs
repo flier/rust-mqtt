@@ -1,11 +1,11 @@
-use std::str;
 use std::borrow::Cow;
+use std::str;
 
-use nom::{be_u8, be_u16, IResult, Needed, ErrorKind, IError};
-use nom::IResult::{Done, Incomplete, Error};
+use nom::{ErrorKind, IError, IResult, Needed, be_u16, be_u8};
+use nom::IResult::{Done, Error, Incomplete};
 
-use proto::*;
 use packet::*;
+use proto::*;
 
 pub const INVALID_PROTOCOL: u32 = 0x0001;
 pub const UNSUPPORT_LEVEL: u32 = 0x0002;
@@ -100,6 +100,8 @@ named!(pub decode_connect_header<Packet>, do_parse!(
     error_if!(level != DEFAULT_MQTT_LEVEL, UNSUPPORT_LEVEL) >>
 
     flags: be_u8 >>
+    // The Server MUST validate that the reserved flag in the CONNECT Control Packet is set to zero
+    // and disconnect the Client if it is not zero [MQTT-3.1.2-3].
     error_if!((flags & 0x01) != 0, RESERVED_FLAG) >>
 
     keep_alive: be_u16 >>
@@ -313,8 +315,8 @@ mod tests {
 
     use std::borrow::Cow;
 
-    use nom::{Needed, ErrorKind};
-    use nom::IResult::{Done, Incomplete, Error};
+    use nom::{ErrorKind, Needed};
+    use nom::IResult::{Done, Error, Incomplete};
 
     use super::*;
 

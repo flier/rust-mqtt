@@ -76,6 +76,9 @@ pub enum QoS {
 
 const_enum!(QoS: u8);
 
+/// The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length,
+/// and that contain only the characters [MQTT-3.1.3-5].
+
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
 pub const CLIENT_ID_CHARS: &[u8] =
     b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
