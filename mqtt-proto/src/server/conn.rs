@@ -13,16 +13,16 @@ use server::{AuthManager, Session, State};
 
 /// MQTT service
 #[derive(Debug)]
-pub struct ServerConn<'a, A> {
+pub struct Conn<'a, A> {
     inner: Inner<'a, A>,
 }
 
-impl<'a, A> ServerConn<'a, A> {
+impl<'a, A> Conn<'a, A> {
     pub fn new(
         sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
         auth_manager: Option<Rc<RefCell<A>>>,
     ) -> Self {
-        ServerConn {
+        Conn {
             inner: Inner {
                 state: Rc::new(RefCell::new(State::Disconnected)),
                 sessions,
@@ -32,7 +32,7 @@ impl<'a, A> ServerConn<'a, A> {
     }
 }
 
-impl<'a, A> Service for ServerConn<'a, A>
+impl<'a, A> Service for Conn<'a, A>
 where
     A: AuthManager,
 {

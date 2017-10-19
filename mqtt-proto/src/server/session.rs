@@ -10,11 +10,7 @@ pub struct Session<'a> {
 }
 
 impl<'a> Session<'a> {
-    pub fn new(
-        client_id: String,
-        keep_alive: Duration,
-        last_will: Option<LastWill<'a>>,
-    ) -> Session<'a> {
+    pub fn new(client_id: String, keep_alive: Duration, last_will: Option<LastWill<'a>>) -> Self {
         Session {
             client_id,
             keep_alive,
