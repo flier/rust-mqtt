@@ -7,11 +7,17 @@ use server::Session;
 
 #[derive(Debug)]
 pub enum State<'a> {
-    Disconnected,
+    Closed,
     Connected {
         session: Rc<RefCell<Session<'a>>>,
         latest: Cell<Instant>,
     },
+}
+
+impl<'a> Default for State<'a> {
+    fn default() -> Self {
+        State::Closed
+    }
 }
 
 impl<'a> State<'a> {
@@ -36,7 +42,7 @@ impl<'a> State<'a> {
 
             Ok(())
         } else {
-            bail!(ErrorKind::Disconnected)
+            bail!(ErrorKind::ConnectionClosed)
         }
     }
 
@@ -47,7 +53,7 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn disconnect(&mut self) {
-        *self = State::Disconnected
+    pub fn close(&mut self) {
+        *self = State::Closed
     }
 }

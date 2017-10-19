@@ -10,7 +10,6 @@ error_chain! {
             display("connect failed, {:?}", code)
         }
         ProtocolViolation
-        InvalidRequest
-        Disconnected
+        ConnectionClosed
     }
 }

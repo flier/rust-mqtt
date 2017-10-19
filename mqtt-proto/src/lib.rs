@@ -15,6 +15,13 @@ extern crate tokio_service;
 
 extern crate mqtt_core as core;
 
+#[cfg(test)]
+#[macro_use]
+extern crate matches;
+#[cfg(test)]
+#[macro_use]
+extern crate lazy_static;
+
 pub mod errors;
 mod codec;
 mod proto;

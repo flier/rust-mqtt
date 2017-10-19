@@ -12,7 +12,7 @@ license = "MIT/Apache-2.0"
 [dependencies]
 log = "^0.3"
 error-chain = "^0.11"
-bytes = "0.4"
+bytes = "^0.4"
 nom = "^3.2"
 
 futures = "0.1"
@@ -27,3 +27,5 @@ clippy = {version = "*", optional = true}
 
 [dev-dependencies]
 env_logger = "^0.4"
+matches = "^0.1"
+lazy_static = "^0.2"
