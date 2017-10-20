@@ -7,6 +7,8 @@ use nom::IResult::{Done, Error, Incomplete};
 use packet::*;
 use proto::*;
 
+const QOS_MASK: u8 = 0x03;
+
 pub const INVALID_PROTOCOL: u32 = 0x0001;
 pub const UNSUPPORT_LEVEL: u32 = 0x0002;
 pub const RESERVED_FLAG: u32 = 0x0003;
@@ -164,7 +166,7 @@ named!(pub decode_subscribe_header<Packet>, do_parse!(
         Packet::Subscribe {
             packet_id: packet_id,
             topic_filters: topic_filters.into_iter()
-                                        .map(|(filter, flags)| (filter, QoS::from(flags & 0x03)))
+                                        .map(|(filter, flags)| (filter, QoS::from(flags & QOS_MASK)))
                                         .collect(),
         }
     )
@@ -180,7 +182,7 @@ named!(pub decode_subscribe_ack_header<Packet>, do_parse!(
                                 .map(|&return_code| if return_code == 0x80 {
                                     SubscribeReturnCode::Failure
                                 } else {
-                                    SubscribeReturnCode::Success(QoS::from(return_code & 0x03))
+                                    SubscribeReturnCode::Success(QoS::from(return_code & QOS_MASK))
                                 })
                                 .collect(),
         }
@@ -219,7 +221,11 @@ fn decode_variable_header(i: &[u8], fixed_header: FixedHeader) -> IResult<&[u8],
                 QoS::AtLeastOnce | QoS::ExactlyOnce => {
                     decode_publish_header(i).map(|(topic, packet_id)| (topic, Some(packet_id)))
                 }
-                _ => decode_utf8_str(i).map(|topic| (topic, None)),
+                QoS::AtMostOnce => decode_utf8_str(i).map(|topic| (topic, None)),
+                // A PUBLISH Packet MUST NOT have both QoS bits set to 1.
+                // If a Server or Client receives a PUBLISH Packet
+                // which has both QoS bits set to 1 it MUST close the Network Connection [MQTT-3.3.1-4].
+                QoS::Reserved => Error(error_position!(ErrorKind::Custom(RESERVED_FLAG), i)),
             };
 
             match result {

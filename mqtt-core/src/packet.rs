@@ -147,6 +147,7 @@ pub enum Packet<'a> {
     Publish {
         /// this might be re-delivery of an earlier attempt to send the Packet.
         dup: bool,
+        /// the Server MUST store the Application Message and its QoS.
         retain: bool,
         /// the level of assurance for delivery of an Application Message.
         qos: QoS,
