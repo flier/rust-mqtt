@@ -5,5 +5,5 @@ mod conn;
 
 pub use self::auth::AuthManager;
 pub use self::conn::Conn;
-pub use self::session::Session;
+pub use self::session::{InMemorySessionManager, Session, SessionManager};
 pub use self::state::State;

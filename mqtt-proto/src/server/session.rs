@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 use core::LastWill;
@@ -36,5 +39,38 @@ impl<'a> Session<'a> {
 
     pub fn set_last_will(&mut self, last_will: Option<LastWill>) {
         self.last_will = last_will.map(|last_will| last_will.into_owned())
+    }
+}
+
+pub trait SessionManager {
+    type Key;
+    type Value;
+
+    fn get(&self, key: &Self::Key) -> Option<Self::Value>;
+
+    fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value>;
+
+    fn remove(&mut self, key: &Self::Key) -> Option<Self::Value>;
+}
+
+#[derive(Debug, Default)]
+pub struct InMemorySessionManager<'a> {
+    sessions: HashMap<String, Rc<RefCell<Session<'a>>>>,
+}
+
+impl<'a> SessionManager for InMemorySessionManager<'a> {
+    type Key = String;
+    type Value = Rc<RefCell<Session<'a>>>;
+
+    fn get(&self, key: &Self::Key) -> Option<Self::Value> {
+        self.sessions.get(key).map(|v| Rc::clone(v))
+    }
+
+    fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value> {
+        self.sessions.insert(key, value)
+    }
+
+    fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
+        self.sessions.remove(key)
     }
 }

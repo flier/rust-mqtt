@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -9,31 +8,32 @@ use tokio_service::Service;
 
 use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, QoS};
 use errors::{Error, ErrorKind, Result};
-use server::{AuthManager, Session, State};
+use server::{AuthManager, Session, SessionManager, State};
 
 /// MQTT service
 #[derive(Debug)]
-pub struct Conn<'a, A> {
-    inner: Inner<'a, A>,
+pub struct Conn<'a, S, A> {
+    inner: Inner<'a, S, A>,
 }
 
-impl<'a, A> Conn<'a, A> {
-    pub fn new(
-        sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
-        auth_manager: Option<Rc<RefCell<A>>>,
-    ) -> Self {
+impl<'a, S, A> Conn<'a, S, A> {
+    pub fn new(session_manager: Rc<RefCell<S>>, auth_manager: Option<Rc<RefCell<A>>>) -> Self {
         Conn {
             inner: Inner {
                 state: Default::default(),
-                sessions,
+                session_manager,
                 auth_manager,
             },
         }
     }
 }
 
-impl<'a, A> Service for Conn<'a, A>
+impl<'a, S, A> Service for Conn<'a, S, A>
 where
+    S: SessionManager<
+        Key = String,
+        Value = Rc<RefCell<Session<'a>>>,
+    >,
     A: AuthManager,
 {
     type Request = Packet<'a>;
@@ -126,14 +126,15 @@ where
 }
 
 #[derive(Debug)]
-struct Inner<'a, A> {
+struct Inner<'a, S, A> {
     state: Rc<RefCell<State<'a>>>,
-    sessions: Rc<RefCell<HashMap<String, Rc<RefCell<Session<'a>>>>>>,
+    session_manager: Rc<RefCell<S>>,
     auth_manager: Option<Rc<RefCell<A>>>,
 }
 
-impl<'a, A> Inner<'a, A>
+impl<'a, S, A> Inner<'a, S, A>
 where
+    S: SessionManager<Key = String, Value = Rc<RefCell<Session<'a>>>>,
     A: AuthManager,
 {
     pub fn connect(
@@ -172,30 +173,31 @@ where
             // If there is no Session associated with the Client identifier the Server MUST create a new Session.
             // The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
 
-            if let Some(session) = self.sessions.borrow().get(&client_id) {
+            if let Some(session) = self.session_manager.borrow().get(&client_id) {
                 debug!("resume session with client_id #{}", client_id);
 
                 // If the ClientId represents a Client already connected to the Server
                 // then the Server MUST disconnect the existing Client [MQTT-3.1.4-2].
 
                 // TODO
+                {
+                    let mut s = session.borrow_mut();
 
-                let mut s = session.borrow_mut();
-
-                s.set_keep_alive(keep_alive);
-                s.set_last_will(last_will);
+                    s.set_keep_alive(keep_alive);
+                    s.set_last_will(last_will);
+                }
 
                 // TODO resume session
 
                 self.state.borrow_mut().connect(Rc::clone(&session));
 
-                return Ok((Rc::clone(session), false));
+                return Ok((session, false));
             }
         } else {
             // If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
             // This Session lasts as long as the Network Connection.
             // State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
-            self.sessions.borrow_mut().remove(&client_id);
+            self.session_manager.borrow_mut().remove(&client_id);
         }
 
         if let Some(ref auth_manager) = self.auth_manager {
@@ -216,7 +218,7 @@ where
             last_will.map(|last_will| last_will.into_owned()),
         )));
 
-        self.sessions.borrow_mut().insert(
+        self.session_manager.borrow_mut().insert(
             client_id,
             Rc::clone(&session),
         );
@@ -227,7 +229,7 @@ where
     }
 }
 
-impl<'a, A> Inner<'a, A> {
+impl<'a, S, A> Inner<'a, S, A> {
     pub fn connected(&self) -> bool {
         self.state.borrow().connected()
     }
@@ -258,6 +260,7 @@ pub mod tests {
     use tokio_service::Service;
 
     use super::*;
+    use server::InMemorySessionManager;
 
     impl AuthManager for () {
         type Error = Error;
@@ -291,13 +294,19 @@ pub mod tests {
         }
     }
 
-    fn new_test_conn<'a>() -> Conn<'a, ()> {
-        Conn::new(Rc::new(RefCell::new(HashMap::new())), None)
+    fn new_test_conn<'a>() -> Conn<'a, InMemorySessionManager<'a>, ()> {
+        Conn::new(
+            Rc::new(RefCell::new(InMemorySessionManager::default())),
+            None,
+        )
     }
 
-    fn new_test_conn_with_auth<'a>(username: &str, password: &[u8]) -> Conn<'a, (String, Vec<u8>)> {
+    fn new_test_conn_with_auth<'a>(
+        username: &str,
+        password: &[u8],
+    ) -> Conn<'a, InMemorySessionManager<'a>, (String, Vec<u8>)> {
         Conn::new(
-            Rc::new(RefCell::new(HashMap::new())),
+            Rc::new(RefCell::new(InMemorySessionManager::default())),
             Some(Rc::new(
                 RefCell::new((username.to_owned(), password.to_owned())),
             )),
