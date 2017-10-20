@@ -13,12 +13,8 @@ extern crate rotor;
 extern crate mqtt_core as core;
 
 mod error;
-#[macro_use]
-mod topic;
 
 pub use core::*;
-pub use topic::{Level, Topic, TopicTree, MatchTopic};
-
 pub mod transport;
 pub mod server;
 pub mod client;

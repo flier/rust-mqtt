@@ -7,7 +7,7 @@ extern crate log;
 extern crate error_chain;
 extern crate bytes;
 extern crate nom;
-
+extern crate slab;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
@@ -29,7 +29,10 @@ extern crate lazy_static;
 pub mod errors;
 mod codec;
 mod proto;
+#[macro_use]
+mod topic;
 pub mod server;
 
 pub use codec::Codec;
 pub use proto::Proto;
+pub use topic::{Level, MatchTopic, Topic, TopicTree};

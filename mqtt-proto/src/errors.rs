@@ -11,5 +11,9 @@ error_chain! {
         }
         ProtocolViolation
         ConnectionClosed
+        InvalidTopic(topic: String) {
+            description("invalid topic")
+            display("invalid topic, {}", topic)
+        }
     }
 }

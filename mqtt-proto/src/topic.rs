@@ -1,15 +1,14 @@
-use std::io;
-use std::ops::{Deref, DerefMut, Div, DivAssign};
-use std::iter::{Iterator, IntoIterator};
-use std::fmt::{self, Display, Formatter, Write};
-use std::str::FromStr;
-use std::convert::{AsRef, Into};
 use std::collections::HashMap;
+use std::convert::{AsRef, Into};
+use std::fmt::{self, Display, Formatter, Write};
+use std::io;
+use std::iter::{IntoIterator, Iterator};
+use std::ops::{Deref, DerefMut, Div, DivAssign};
+use std::str::FromStr;
 
 use slab::Slab;
 
-use error::*;
-use error::ErrorKind::*;
+use errors::{Error, ErrorKind, Result};
 
 #[inline]
 fn is_metadata<T: AsRef<str>>(s: T) -> bool {
@@ -261,7 +260,7 @@ impl FromStr for Level {
             "" => Ok(Level::Blank),
             _ => {
                 if s.contains(|c| c == '+' || c == '#') {
-                    bail!(InvalidTopic)
+                    bail!(ErrorKind::InvalidTopic(s.to_owned()))
                 } else if is_metadata(s) {
                     Ok(Level::Metadata(String::from(s)))
                 } else {
@@ -284,7 +283,7 @@ impl FromStr for Topic {
             .and_then(|topic| if topic.is_valid() {
                 Ok(topic)
             } else {
-                bail!(InvalidTopic)
+                bail!(ErrorKind::InvalidTopic(s.to_owned()))
             })
     }
 }
