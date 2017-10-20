@@ -78,7 +78,7 @@ pub struct FixedHeader {
 }
 
 /// Connection Will
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize)]
 pub struct LastWill<'a> {
     /// the QoS level to be used when publishing the Will Message.
     pub qos: QoS,
@@ -91,12 +91,12 @@ pub struct LastWill<'a> {
 }
 
 impl<'a> LastWill<'a> {
-    pub fn into_owned(self) ->LastWill<'static> {
+    pub fn into_owned(self) -> LastWill<'static> {
         LastWill {
             qos: self.qos,
             retain: self.retain,
             topic: self.topic.into_owned().into(),
-            message: self.message.into_owned().into()
+            message: self.message.into_owned().into(),
         }
     }
 }

@@ -52,7 +52,7 @@ impl Default for Protocol {
 
 /// Quality of Service levels
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QoS {
     /// At most once delivery
     ///

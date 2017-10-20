@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use core::LastWill;
+use core::{LastWill, QoS};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Session<'a> {
     client_id: String,
     keep_alive: Duration,
     last_will: Option<LastWill<'a>>,
+    subscription: HashMap<String, QoS>,
 }
 
 impl<'a> Session<'a> {
@@ -18,6 +19,7 @@ impl<'a> Session<'a> {
             client_id,
             keep_alive,
             last_will,
+            subscription: Default::default(),
         }
     }
 
@@ -39,6 +41,14 @@ impl<'a> Session<'a> {
 
     pub fn set_last_will(&mut self, last_will: Option<LastWill>) {
         self.last_will = last_will.map(|last_will| last_will.into_owned())
+    }
+
+    pub fn subscribe(&mut self, filter: &str, qos: QoS) -> Option<QoS> {
+        self.subscription.insert(filter.to_owned(), qos)
+    }
+
+    pub fn unsubscribe(&mut self, filter: &str) -> Option<QoS> {
+        self.subscription.remove(filter)
     }
 }
 

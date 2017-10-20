@@ -6,7 +6,7 @@ use std::time::Duration;
 use futures::{Future, IntoFuture, future};
 use tokio_service::Service;
 
-use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, QoS};
+use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
 use server::{AuthManager, Session, SessionManager, State};
 
@@ -70,10 +70,10 @@ where
                     protocol,
                     clean_session,
                     Duration::from_secs(u64::from(keep_alive)),
-                    last_will,
+                    last_will.clone(),
                     client_id.into_owned(),
-                    username,
-                    password,
+                    username.clone(),
+                    password.clone(),
                 ) {
                     Ok((session, new_session)) => {
                         trace!("client connected: {:?}", session);
@@ -95,6 +95,36 @@ where
                         }))
                     }
                 }
+            }
+            Packet::Subscribe {
+                packet_id,
+                ref topic_filters,
+            } if self.inner.connected() => {
+                let session = self.inner.session().unwrap();
+
+                Box::new(future::ok(Packet::SubscribeAck {
+                    packet_id,
+                    status: topic_filters
+                        .iter()
+                        .map(|&(ref filter, qos)| {
+                            session.borrow_mut().subscribe(&filter, qos);
+
+                            SubscribeReturnCode::Success(qos)
+                        })
+                        .collect(),
+                }))
+            }
+            Packet::Unsubscribe {
+                packet_id,
+                ref topic_filters,
+            } if self.inner.connected() => {
+                let session = self.inner.session().unwrap();
+
+                for filter in topic_filters {
+                    session.borrow_mut().unsubscribe(&filter);
+                }
+
+                Box::new(future::ok(Packet::UnsubscribeAck { packet_id }))
             }
             Packet::PingRequest if self.inner.connected() => {
                 Box::new(
@@ -234,6 +264,10 @@ impl<'a, S, A> Inner<'a, S, A> {
         self.state.borrow().connected()
     }
 
+    pub fn session(&self) -> Option<Rc<RefCell<Session<'a>>>> {
+        self.state.borrow().session()
+    }
+
     pub fn shutdown(&self) {
         self.state.borrow_mut().close()
     }
@@ -260,6 +294,7 @@ pub mod tests {
     use tokio_service::Service;
 
     use super::*;
+    use core::QoS;
     use server::InMemorySessionManager;
 
     impl AuthManager for () {
@@ -403,7 +438,7 @@ pub mod tests {
 
         assert!(conn.inner.connected());
 
-        let session = conn.inner.state.borrow().session().unwrap();
+        let session = conn.inner.session().unwrap();
 
         assert!(session.borrow().last_will().is_some());
     }
@@ -418,7 +453,7 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         })));
 
-        let session = conn.inner.state.borrow().session().unwrap();
+        let session = conn.inner.session().unwrap();
 
         // On receipt of DISCONNECT the Server:
         //      MUST discard any Will Message associated with the current connection without publishing it,
@@ -468,7 +503,7 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         })));
 
-        let session = conn.inner.state.borrow().session().unwrap();
+        let session = conn.inner.session().unwrap();
 
         // On receipt of DISCONNECT the Server:
         //      MUST discard any Will Message associated with the current connection without publishing it,
@@ -496,7 +531,7 @@ pub mod tests {
 
         assert!(conn.inner.connected());
 
-        let new_session = conn.inner.state.borrow().session().unwrap();
+        let new_session = conn.inner.session().unwrap();
 
         assert_ne!(*session.borrow(), *new_session.borrow());
         assert_eq!(new_session.borrow().last_will().unwrap(), &LastWill {
