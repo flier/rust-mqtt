@@ -15,5 +15,6 @@ error_chain! {
             description("invalid topic")
             display("invalid topic, {}", topic)
         }
+        UnexpectedState
     }
 }

@@ -154,7 +154,7 @@ pub enum Packet<'a> {
         /// the information channel to which payload data is published.
         topic: Cow<'a, str>,
         /// only present in PUBLISH Packets where the QoS level is 1 or 2.
-        packet_id: Option<u16>,
+        packet_id: Option<PacketId>,
         /// the Application Message that is being published.
         payload: Cow<'a, [u8]>,
     },

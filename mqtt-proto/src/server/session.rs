@@ -4,13 +4,16 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use core::{LastWill, QoS};
+use message::{MessageReceiver, MessageSender};
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Session<'a> {
     client_id: String,
     keep_alive: Duration,
     last_will: Option<LastWill<'a>>,
     subscription: HashMap<String, QoS>,
+    pub message_sender: MessageSender<'a>,
+    pub message_receiver: MessageReceiver<'a>,
 }
 
 impl<'a> Session<'a> {
@@ -20,6 +23,8 @@ impl<'a> Session<'a> {
             keep_alive,
             last_will,
             subscription: Default::default(),
+            message_sender: Default::default(),
+            message_receiver: Default::default(),
         }
     }
 

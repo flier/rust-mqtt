@@ -6,7 +6,7 @@ use std::time::Duration;
 use futures::{Future, IntoFuture};
 use tokio_service::Service;
 
-use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, SubscribeReturnCode};
+use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, QoS, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
 use server::{AuthManager, Session, SessionManager, State};
 
@@ -37,7 +37,7 @@ where
     A: AuthManager,
 {
     type Request = Packet<'a>;
-    type Response = Packet<'a>;
+    type Response = Option<Packet<'a>>;
     type Error = Error;
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
@@ -53,59 +53,125 @@ where
     S: SessionManager<Key = String, Value = Rc<RefCell<Session<'a>>>>,
     A: AuthManager,
 {
-    fn handle<'b>(&self, request: Packet<'a>) -> Result<Packet<'b>> {
-        match request {
-            Packet::Connect {
+    fn handle<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
+        if !self.inner.connected() {
+            self.handle_connect(request)
+        } else if let Some(session) = self.inner.session() {
+            self.handle_request(request, session)
+        } else {
+            self.protocol_violation(request)
+        }
+    }
+
+    fn handle_connect<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
+        if let Packet::Connect {
+            protocol,
+            clean_session,
+            keep_alive,
+            last_will,
+            client_id,
+            username,
+            password,
+        } = request
+        {
+            match self.inner.connect(
                 protocol,
                 clean_session,
-                keep_alive,
-                ref last_will,
-                ref client_id,
-                ref username,
-                ref password,
-            } if !self.inner.connected() => {
-                // The Server MUST process a second CONNECT Packet sent from a Client
-                // as a protocol violation and disconnect the Client [MQTT-3.1.0-2].
+                Duration::from_secs(u64::from(keep_alive)),
+                last_will,
+                client_id.into_owned(),
+                username,
+                password,
+            ) {
+                Ok((session, new_session)) => {
+                    trace!("client connected: {:?}", session);
 
-                match self.inner.connect(
-                    protocol,
-                    clean_session,
-                    Duration::from_secs(u64::from(keep_alive)),
-                    last_will.clone(),
-                    client_id.clone().into_owned(),
-                    username.clone(),
-                    password.clone(),
-                ) {
-                    Ok((session, new_session)) => {
-                        trace!("client connected: {:?}", session);
-
-                        Ok(Packet::ConnectAck {
-                            session_present: !clean_session && !new_session,
-                            return_code: ConnectReturnCode::ConnectionAccepted,
-                        })
-                    }
-                    Err(Error(kind, _)) => {
-                        trace!("client connect failed, {:?}", kind);
-
-                        Ok(Packet::ConnectAck {
-                            session_present: false,
-                            return_code: match kind {
-                                ErrorKind::ConnectFailed(code) => code,
-                                _ => ConnectReturnCode::ServiceUnavailable,
-                            },
-                        })
-                    }
+                    Ok(Some(Packet::ConnectAck {
+                        session_present: !clean_session && !new_session,
+                        return_code: ConnectReturnCode::ConnectionAccepted,
+                    }))
                 }
+                Err(Error(kind, _)) => {
+                    trace!("client connect failed, {:?}", kind);
+
+                    Ok(Some(Packet::ConnectAck {
+                        session_present: false,
+                        return_code: match kind {
+                            ErrorKind::ConnectFailed(code) => code,
+                            _ => ConnectReturnCode::ServiceUnavailable,
+                        },
+                    }))
+                }
+            }
+        } else {
+            // After a Network Connection is established by a Client to a Server,
+            // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
+
+            self.protocol_violation(request)
+        }
+    }
+
+    fn handle_request<'b>(
+        &self,
+        request: Packet<'a>,
+        session: Rc<RefCell<Session<'a>>>,
+    ) -> Result<Option<Packet<'b>>> {
+        match request {
+            Packet::Publish {
+                dup,
+                retain,
+                qos,
+                topic,
+                packet_id,
+                payload,
+            } => {
+                session
+                    .borrow_mut()
+                    .message_receiver
+                    .on_publish(dup, retain, qos, topic, packet_id, payload)
+                    .map(|packet_id| {
+                        packet_id.and_then(|packet_id| match qos {
+                            QoS::AtLeastOnce => Some(Packet::PublishAck { packet_id }),
+                            QoS::ExactlyOnce => Some(Packet::PublishReceived { packet_id }),
+                            _ => None,
+                        })
+                    })
+            }
+            Packet::PublishAck { packet_id } => {
+                session
+                    .borrow_mut()
+                    .message_sender
+                    .on_publish_ack(packet_id)
+                    .map(|_| None)
+            }
+            Packet::PublishReceived { packet_id } => {
+                session
+                    .borrow_mut()
+                    .message_sender
+                    .on_publish_received(packet_id)
+                    .map(|packet_id| Some(Packet::PublishRelease { packet_id }))
+            }
+            Packet::PublishComplete { packet_id } => {
+                session
+                    .borrow_mut()
+                    .message_sender
+                    .on_publish_complete(packet_id)
+                    .map(|_| None)
+            }
+            Packet::PublishRelease { packet_id } => {
+                session
+                    .borrow_mut()
+                    .message_receiver
+                    .on_publish_release(packet_id)
+                    .map(|_| None)
             }
             Packet::Subscribe {
                 packet_id,
-                ref topic_filters,
-            } if self.inner.connected() => {
+                topic_filters,
+            } => {
                 trace!("subscribe filters: {:?}", topic_filters);
 
-                let session = self.inner.session().unwrap();
-
-                Ok(Packet::SubscribeAck {
+                Ok(Some(Packet::SubscribeAck {
                     packet_id,
                     status: topic_filters
                         .iter()
@@ -115,44 +181,42 @@ where
                             SubscribeReturnCode::Success(qos)
                         })
                         .collect(),
-                })
+                }))
             }
             Packet::Unsubscribe {
                 packet_id,
-                ref topic_filters,
-            } if self.inner.connected() => {
+                topic_filters,
+            } => {
                 trace!("unsubscribe filters: {:?}", topic_filters);
-
-                let session = self.inner.session().unwrap();
 
                 for filter in topic_filters {
                     session.borrow_mut().unsubscribe(&filter);
                 }
 
-                Ok(Packet::UnsubscribeAck { packet_id })
+                Ok(Some(Packet::UnsubscribeAck { packet_id }))
             }
-            Packet::PingRequest if self.inner.connected() => {
+            Packet::PingRequest => {
                 trace!("ping");
 
-                self.inner.touch().map(|_| Packet::PingResponse)
+                self.inner.touch().map(|_| Some(Packet::PingResponse))
             }
-            Packet::Disconnect if self.inner.connected() => {
+            Packet::Disconnect => {
                 trace!("disconnect");
 
                 self.inner.disconnect();
 
                 bail!(ErrorKind::ConnectionClosed);
             }
-            _ => {
-                // After a Network Connection is established by a Client to a Server,
-                // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
-                warn!("unexpected request: {:?}", request);
-
-                self.inner.shutdown();
-
-                bail!(ErrorKind::ProtocolViolation)
-            }
+            _ => self.protocol_violation(request),
         }
+    }
+
+    fn protocol_violation<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
+        warn!("unexpected request: {:?}", request);
+
+        self.inner.shutdown();
+
+        bail!(ErrorKind::ProtocolViolation)
     }
 }
 
@@ -295,7 +359,6 @@ pub mod tests {
     use tokio_service::Service;
 
     use super::*;
-    use core::QoS;
     use server::InMemorySessionManager;
 
     impl AuthManager for () {
@@ -385,10 +448,10 @@ pub mod tests {
             client_id: Cow::from("client_id"),
             username: None,
             password: None,
-        }).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::UnacceptableProtocolVersion
-        })));
+        }))));
     }
 
     #[test]
@@ -402,10 +465,10 @@ pub mod tests {
             client_id: Cow::from(""),
             username: None,
             password: None,
-        }).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::IdentifierRejected
-        })));
+        }))));
     }
 
     #[test]
@@ -421,10 +484,10 @@ pub mod tests {
             client_id: Cow::from("client_id"),
             username: None,
             password: None,
-        }).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::IdentifierRejected
-        })));
+        }))));
     }
 
     #[test]
@@ -432,10 +495,10 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         assert!(conn.inner.connected());
 
@@ -449,10 +512,10 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         let session = conn.inner.session().unwrap();
 
@@ -471,10 +534,10 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         // On receipt of DISCONNECT the Server:
         //      MUST discard any Will Message associated with the current connection without publishing it,
@@ -486,10 +549,10 @@ pub mod tests {
         // the value set in Session Present depends on whether the Server already has stored Session state
         // for the supplied client ID. If the Server has stored Session state,
         // it MUST set Session Present to 1 in the CONNACK packet [MQTT-3.2.2-2].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: true,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         assert!(conn.inner.connected());
     }
@@ -499,10 +562,10 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         let session = conn.inner.session().unwrap();
 
@@ -525,16 +588,16 @@ pub mod tests {
             client_id: Cow::from("client"),
             username: None,
             password: None,
-        }).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         assert!(conn.inner.connected());
 
         let new_session = conn.inner.session().unwrap();
 
-        assert_ne!(*session.borrow(), *new_session.borrow());
+        assert_ne!(session.borrow().last_will(), new_session.borrow().last_will());
         assert_eq!(new_session.borrow().last_will().unwrap(), &LastWill {
             qos: QoS::AtLeastOnce,
             retain: false,
@@ -548,10 +611,10 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         // A Client can only send the CONNECT Packet once over a Network Connection.
         // The Server MUST process a second CONNECT Packet sent from a Client as a protocol violation
@@ -574,12 +637,12 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Packet::ConnectAck {
+        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
             session_present: false,
             return_code: ConnectReturnCode::ConnectionAccepted
-        })));
+        }))));
 
         // The Server MUST send a PINGRESP Packet in response to a PINGREQ Packet [MQTT-3.12.4-1].
-        assert_matches!(conn.call(Packet::PingRequest).poll(), Ok(Async::Ready(Packet::PingResponse)));
+        assert_matches!(conn.call(Packet::PingRequest).poll(), Ok(Async::Ready(Some(Packet::PingResponse))));
     }
 }

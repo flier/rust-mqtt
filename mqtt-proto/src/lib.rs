@@ -8,9 +8,10 @@ extern crate error_chain;
 extern crate bytes;
 extern crate nom;
 extern crate slab;
+extern crate time;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 
 extern crate futures;
 extern crate tokio_io;
@@ -31,8 +32,10 @@ mod codec;
 mod proto;
 #[macro_use]
 mod topic;
+mod message;
 pub mod server;
 
 pub use codec::Codec;
+pub use message::{Message, MessageReceiver, MessageSender};
 pub use proto::Proto;
 pub use topic::{Level, MatchTopic, Topic, TopicTree};
