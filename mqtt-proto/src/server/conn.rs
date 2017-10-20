@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use futures::{Future, IntoFuture, future};
+use futures::{Future, IntoFuture};
 use tokio_service::Service;
 
 use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, SubscribeReturnCode};
@@ -28,6 +28,106 @@ impl<'a, S, A> Conn<'a, S, A> {
     }
 }
 
+
+impl<'a, S, A> Conn<'a, S, A>
+where
+    S: SessionManager<Key = String, Value = Rc<RefCell<Session<'a>>>>,
+    A: AuthManager,
+{
+    fn handle<'b>(&self, request: Packet<'a>) -> Result<Packet<'b>> {
+        match request {
+            Packet::Connect {
+                protocol,
+                clean_session,
+                keep_alive,
+                ref last_will,
+                ref client_id,
+                ref username,
+                ref password,
+            } if !self.inner.connected() => {
+                // The Server MUST process a second CONNECT Packet sent from a Client
+                // as a protocol violation and disconnect the Client [MQTT-3.1.0-2].
+
+                match self.inner.connect(
+                    protocol,
+                    clean_session,
+                    Duration::from_secs(u64::from(keep_alive)),
+                    last_will.clone(),
+                    client_id.clone().into_owned(),
+                    username.clone(),
+                    password.clone(),
+                ) {
+                    Ok((session, new_session)) => {
+                        trace!("client connected: {:?}", session);
+
+                        Ok(Packet::ConnectAck {
+                            session_present: !clean_session && !new_session,
+                            return_code: ConnectReturnCode::ConnectionAccepted,
+                        })
+                    }
+                    Err(Error(kind, _)) => {
+                        trace!("client connect failed, {:?}", kind);
+
+                        Ok(Packet::ConnectAck {
+                            session_present: false,
+                            return_code: match kind {
+                                ErrorKind::ConnectFailed(code) => code,
+                                _ => ConnectReturnCode::ServiceUnavailable,
+                            },
+                        })
+                    }
+                }
+            }
+            Packet::Subscribe {
+                packet_id,
+                ref topic_filters,
+            } if self.inner.connected() => {
+                let session = self.inner.session().unwrap();
+
+                Ok(Packet::SubscribeAck {
+                    packet_id,
+                    status: topic_filters
+                        .iter()
+                        .map(|&(ref filter, qos)| {
+                            session.borrow_mut().subscribe(&filter, qos);
+
+                            SubscribeReturnCode::Success(qos)
+                        })
+                        .collect(),
+                })
+            }
+            Packet::Unsubscribe {
+                packet_id,
+                ref topic_filters,
+            } if self.inner.connected() => {
+                let session = self.inner.session().unwrap();
+
+                for filter in topic_filters {
+                    session.borrow_mut().unsubscribe(&filter);
+                }
+
+                Ok(Packet::UnsubscribeAck { packet_id })
+            }
+            Packet::PingRequest if self.inner.connected() => {
+                self.inner.touch().map(|_| Packet::PingResponse)
+            }
+            Packet::Disconnect if self.inner.connected() => {
+                self.inner.disconnect();
+
+                bail!(ErrorKind::ConnectionClosed);
+            }
+            _ => {
+                // After a Network Connection is established by a Client to a Server,
+                // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
+
+                self.inner.shutdown();
+
+                bail!(ErrorKind::ProtocolViolation)
+            }
+        }
+    }
+}
+
 impl<'a, S, A> Service for Conn<'a, S, A>
 where
     S: SessionManager<
@@ -46,112 +146,7 @@ where
     fn call(&self, request: Self::Request) -> Self::Future {
         trace!("serve request: {:?}", request);
 
-        match request {
-            Packet::Connect {
-                protocol,
-                clean_session,
-                keep_alive,
-                last_will,
-                client_id,
-                username,
-                password,
-            } => {
-                // The Server MUST process a second CONNECT Packet sent from a Client
-                // as a protocol violation and disconnect the Client [MQTT-3.1.0-2].
-                if self.inner.connected() {
-                    let err: Error = ErrorKind::ProtocolViolation.into();
-
-                    self.inner.shutdown();
-
-                    return Box::new(Err(err).into_future());
-                }
-
-                match self.inner.connect(
-                    protocol,
-                    clean_session,
-                    Duration::from_secs(u64::from(keep_alive)),
-                    last_will.clone(),
-                    client_id.into_owned(),
-                    username.clone(),
-                    password.clone(),
-                ) {
-                    Ok((session, new_session)) => {
-                        trace!("client connected: {:?}", session);
-
-                        Box::new(future::ok(Packet::ConnectAck {
-                            session_present: !clean_session && !new_session,
-                            return_code: ConnectReturnCode::ConnectionAccepted,
-                        }))
-                    }
-                    Err(Error(kind, _)) => {
-                        trace!("client connect failed, {:?}", kind);
-
-                        Box::new(future::ok(Packet::ConnectAck {
-                            session_present: false,
-                            return_code: match kind {
-                                ErrorKind::ConnectFailed(code) => code,
-                                _ => ConnectReturnCode::ServiceUnavailable,
-                            },
-                        }))
-                    }
-                }
-            }
-            Packet::Subscribe {
-                packet_id,
-                ref topic_filters,
-            } if self.inner.connected() => {
-                let session = self.inner.session().unwrap();
-
-                Box::new(future::ok(Packet::SubscribeAck {
-                    packet_id,
-                    status: topic_filters
-                        .iter()
-                        .map(|&(ref filter, qos)| {
-                            session.borrow_mut().subscribe(&filter, qos);
-
-                            SubscribeReturnCode::Success(qos)
-                        })
-                        .collect(),
-                }))
-            }
-            Packet::Unsubscribe {
-                packet_id,
-                ref topic_filters,
-            } if self.inner.connected() => {
-                let session = self.inner.session().unwrap();
-
-                for filter in topic_filters {
-                    session.borrow_mut().unsubscribe(&filter);
-                }
-
-                Box::new(future::ok(Packet::UnsubscribeAck { packet_id }))
-            }
-            Packet::PingRequest if self.inner.connected() => {
-                Box::new(
-                    self.inner
-                        .touch()
-                        .map(|_| Packet::PingResponse)
-                        .into_future(),
-                )
-            }
-            Packet::Disconnect if self.inner.connected() => {
-                self.inner.disconnect();
-
-                let err: Error = ErrorKind::ConnectionClosed.into();
-
-                Box::new(Err(err).into_future())
-            }
-            _ => {
-                // After a Network Connection is established by a Client to a Server,
-                // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
-
-                self.inner.shutdown();
-
-                let err: Error = ErrorKind::ConnectionClosed.into();
-
-                Box::new(Err(err).into_future())
-            }
-        }
+        Box::new(self.handle(request).into_future())
     }
 }
 
@@ -369,7 +364,7 @@ pub mod tests {
     fn test_request_before_connect() {
         // After a Network Connection is established by a Client to a Server,
         // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
-        assert_matches!(new_test_conn().call(Packet::PingRequest).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
+        assert_matches!(new_test_conn().call(Packet::PingRequest).poll(), Err(Error(ErrorKind::ProtocolViolation, _)));
     }
 
     #[test]
