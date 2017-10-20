@@ -28,6 +28,25 @@ impl<'a, S, A> Conn<'a, S, A> {
     }
 }
 
+impl<'a, S, A> Service for Conn<'a, S, A>
+where
+    S: SessionManager<
+        Key = String,
+        Value = Rc<RefCell<Session<'a>>>,
+    >,
+    A: AuthManager,
+{
+    type Request = Packet<'a>;
+    type Response = Packet<'a>;
+    type Error = Error;
+    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+
+    fn call(&self, request: Self::Request) -> Self::Future {
+        trace!("serve request: {:?}", request);
+
+        Box::new(self.handle(request).into_future())
+    }
+}
 
 impl<'a, S, A> Conn<'a, S, A>
 where
@@ -82,6 +101,8 @@ where
                 packet_id,
                 ref topic_filters,
             } if self.inner.connected() => {
+                trace!("subscribe filters: {:?}", topic_filters);
+
                 let session = self.inner.session().unwrap();
 
                 Ok(Packet::SubscribeAck {
@@ -100,6 +121,8 @@ where
                 packet_id,
                 ref topic_filters,
             } if self.inner.connected() => {
+                trace!("unsubscribe filters: {:?}", topic_filters);
+
                 let session = self.inner.session().unwrap();
 
                 for filter in topic_filters {
@@ -109,9 +132,13 @@ where
                 Ok(Packet::UnsubscribeAck { packet_id })
             }
             Packet::PingRequest if self.inner.connected() => {
+                trace!("ping");
+
                 self.inner.touch().map(|_| Packet::PingResponse)
             }
             Packet::Disconnect if self.inner.connected() => {
+                trace!("disconnect");
+
                 self.inner.disconnect();
 
                 bail!(ErrorKind::ConnectionClosed);
@@ -119,34 +146,13 @@ where
             _ => {
                 // After a Network Connection is established by a Client to a Server,
                 // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
+                warn!("unexpected request: {:?}", request);
 
                 self.inner.shutdown();
 
                 bail!(ErrorKind::ProtocolViolation)
             }
         }
-    }
-}
-
-impl<'a, S, A> Service for Conn<'a, S, A>
-where
-    S: SessionManager<
-        Key = String,
-        Value = Rc<RefCell<Session<'a>>>,
-    >,
-    A: AuthManager,
-{
-    type Request = Packet<'a>;
-    type Response = Packet<'a>;
-
-    type Error = Error;
-
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
-
-    fn call(&self, request: Self::Request) -> Self::Future {
-        trace!("serve request: {:?}", request);
-
-        Box::new(self.handle(request).into_future())
     }
 }
 
