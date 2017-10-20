@@ -11,6 +11,10 @@ extern crate rand;
 extern crate byteorder;
 
 #[macro_use]
+extern crate serde_derive;
+extern crate serde;
+
+#[macro_use]
 mod proto;
 mod packet;
 mod encode;

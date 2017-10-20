@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use core::LastWill;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Session<'a> {
     client_id: String,
     keep_alive: Duration,

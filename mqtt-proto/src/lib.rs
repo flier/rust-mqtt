@@ -8,6 +8,10 @@ extern crate error_chain;
 extern crate bytes;
 extern crate nom;
 
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+
 extern crate futures;
 extern crate tokio_io;
 extern crate tokio_proto;

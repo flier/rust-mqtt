@@ -78,7 +78,7 @@ pub struct FixedHeader {
 }
 
 /// Connection Will
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LastWill<'a> {
     /// the QoS level to be used when publishing the Will Message.
     pub qos: QoS,
