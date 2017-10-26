@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use core::{LastWill, QoS};
+use errors::Result;
 use message::{MessageReceiver, MessageSender};
 
 #[derive(Debug)]
@@ -48,8 +49,8 @@ impl<'a> Session<'a> {
         self.last_will = last_will.map(|last_will| last_will.into_owned())
     }
 
-    pub fn subscribe(&mut self, filter: &str, qos: QoS) -> Option<QoS> {
-        self.subscription.insert(filter.to_owned(), qos)
+    pub fn subscribe(&mut self, filter: &str, qos: QoS) -> Result<Option<QoS>> {
+        Ok(self.subscription.insert(filter.to_owned(), qos))
     }
 
     pub fn unsubscribe(&mut self, filter: &str) -> Option<QoS> {
@@ -57,7 +58,7 @@ impl<'a> Session<'a> {
     }
 }
 
-pub trait SessionManager {
+pub trait SessionManager: Clone {
     type Key;
     type Value;
 
@@ -68,7 +69,7 @@ pub trait SessionManager {
     fn remove(&mut self, key: &Self::Key) -> Option<Self::Value>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct InMemorySessionManager<'a> {
     sessions: HashMap<String, Rc<RefCell<Session<'a>>>>,
 }

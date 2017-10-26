@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -6,25 +5,25 @@ use std::time::Duration;
 use futures::{Future, IntoFuture};
 use tokio_service::Service;
 
-use core::{ClientId, ConnectReturnCode, LastWill, Packet, Protocol, QoS, SubscribeReturnCode};
+use core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
-use server::{AuthManager, Session, SessionManager, State};
+use server::{AuthManager, Connected, Session, SessionManager, State};
 
 /// MQTT service
-#[derive(Debug)]
 pub struct Conn<'a, S, A> {
-    inner: Inner<'a, S, A>,
+    state: RefCell<State<'a, S, A>>,
 }
 
 impl<'a, S, A> Conn<'a, S, A> {
-    pub fn new(session_manager: Rc<RefCell<S>>, auth_manager: Option<Rc<RefCell<A>>>) -> Self {
-        Conn {
-            inner: Inner {
-                state: Default::default(),
-                session_manager,
-                auth_manager,
-            },
-        }
+    pub fn new(
+        session_manager: Rc<RefCell<S>>,
+        auth_manager: Option<Rc<RefCell<A>>>,
+    ) -> Conn<'a, S, A> {
+        Conn { state: RefCell::new(State::new(session_manager, auth_manager)) }
+    }
+
+    pub fn connected(&self) -> Option<Connected<'a>> {
+        self.state.borrow().connected()
     }
 }
 
@@ -54,311 +53,195 @@ where
     A: AuthManager,
 {
     fn handle<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
-        if !self.inner.connected() {
-            self.handle_connect(request)
-        } else if let Some(session) = self.inner.session() {
-            self.handle_request(request, session)
-        } else {
-            self.protocol_violation(request)
-        }
-    }
+        let (next_state, result) = match self.handle_request(request) {
+            Ok((response, state)) => (state, Ok(response)),
+            Err(err) => (State::Disconnected, Err(err)),
+        };
 
-    fn handle_connect<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
-        if let Packet::Connect {
-            protocol,
-            clean_session,
-            keep_alive,
-            last_will,
-            client_id,
-            username,
-            password,
-        } = request
-        {
-            match self.inner.connect(
-                protocol,
-                clean_session,
-                Duration::from_secs(u64::from(keep_alive)),
-                last_will,
-                client_id.into_owned(),
-                username,
-                password,
-            ) {
-                Ok((session, new_session)) => {
-                    trace!("client connected: {:?}", session);
+        *self.state.borrow_mut() = next_state;
 
-                    Ok(Some(Packet::ConnectAck {
-                        session_present: !clean_session && !new_session,
-                        return_code: ConnectReturnCode::ConnectionAccepted,
-                    }))
-                }
-                Err(Error(kind, _)) => {
-                    trace!("client connect failed, {:?}", kind);
-
-                    Ok(Some(Packet::ConnectAck {
-                        session_present: false,
-                        return_code: match kind {
-                            ErrorKind::ConnectFailed(code) => code,
-                            _ => ConnectReturnCode::ServiceUnavailable,
-                        },
-                    }))
-                }
-            }
-        } else {
-            // After a Network Connection is established by a Client to a Server,
-            // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
-
-            self.protocol_violation(request)
-        }
+        result
     }
 
     fn handle_request<'b>(
         &self,
         request: Packet<'a>,
-        session: Rc<RefCell<Session<'a>>>,
-    ) -> Result<Option<Packet<'b>>> {
-        match request {
-            Packet::Publish {
-                dup,
-                retain,
-                qos,
-                topic,
-                packet_id,
-                payload,
-            } => {
-                session
-                    .borrow_mut()
-                    .message_receiver
-                    .on_publish(dup, retain, qos, topic, packet_id, payload)
-                    .map(|packet_id| {
-                        packet_id.and_then(|packet_id| match qos {
-                            QoS::AtLeastOnce => Some(Packet::PublishAck { packet_id }),
-                            QoS::ExactlyOnce => Some(Packet::PublishReceived { packet_id }),
-                            _ => None,
-                        })
-                    })
-            }
-            Packet::PublishAck { packet_id } => {
-                session
-                    .borrow_mut()
-                    .message_sender
-                    .on_publish_ack(packet_id)
-                    .map(|_| None)
-            }
-            Packet::PublishReceived { packet_id } => {
-                session
-                    .borrow_mut()
-                    .message_sender
-                    .on_publish_received(packet_id)
-                    .map(|packet_id| Some(Packet::PublishRelease { packet_id }))
-            }
-            Packet::PublishComplete { packet_id } => {
-                session
-                    .borrow_mut()
-                    .message_sender
-                    .on_publish_complete(packet_id)
-                    .map(|_| None)
-            }
-            Packet::PublishRelease { packet_id } => {
-                session
-                    .borrow_mut()
-                    .message_receiver
-                    .on_publish_release(packet_id)
-                    .map(|_| None)
-            }
-            Packet::Subscribe {
-                packet_id,
-                topic_filters,
-            } => {
-                trace!("subscribe filters: {:?}", topic_filters);
-
-                Ok(Some(Packet::SubscribeAck {
-                    packet_id,
-                    status: topic_filters
-                        .iter()
-                        .map(|&(ref filter, qos)| {
-                            session.borrow_mut().subscribe(&filter, qos);
-
-                            SubscribeReturnCode::Success(qos)
-                        })
-                        .collect(),
-                }))
-            }
-            Packet::Unsubscribe {
-                packet_id,
-                topic_filters,
-            } => {
-                trace!("unsubscribe filters: {:?}", topic_filters);
-
-                for filter in topic_filters {
-                    session.borrow_mut().unsubscribe(&filter);
-                }
-
-                Ok(Some(Packet::UnsubscribeAck { packet_id }))
-            }
-            Packet::PingRequest => {
-                trace!("ping");
-
-                self.inner.touch().map(|_| Some(Packet::PingResponse))
-            }
-            Packet::Disconnect => {
-                trace!("disconnect");
-
-                self.inner.disconnect();
-
-                bail!(ErrorKind::ConnectionClosed);
-            }
-            _ => self.protocol_violation(request),
-        }
-    }
-
-    fn protocol_violation<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
-        warn!("unexpected request: {:?}", request);
-
-        self.inner.shutdown();
-
-        bail!(ErrorKind::ProtocolViolation)
-    }
-}
-
-#[derive(Debug)]
-struct Inner<'a, S, A> {
-    state: Rc<RefCell<State<'a>>>,
-    session_manager: Rc<RefCell<S>>,
-    auth_manager: Option<Rc<RefCell<A>>>,
-}
-
-impl<'a, S, A> Inner<'a, S, A>
-where
-    S: SessionManager<Key = String, Value = Rc<RefCell<Session<'a>>>>,
-    A: AuthManager,
-{
-    pub fn connect(
-        &self,
-        protocol: Protocol,
-        clean_session: bool,
-        keep_alive: Duration,
-        last_will: Option<LastWill>,
-        client_id: String,
-        username: Option<Cow<str>>,
-        password: Option<Cow<[u8]>>,
-    ) -> Result<(Rc<RefCell<Session<'a>>>, bool)> {
-        // If the protocol name is incorrect the Server MAY disconnect the Client,
-        // or it MAY continue processing the CONNECT packet in accordance with some other specification.
-        // In the latter case, the Server MUST NOT continue to process the CONNECT packet
-        // in line with this specification [MQTT-3.1.2-1].
-        //
-        // The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01
-        // (unacceptable protocol level) and then disconnect the Client if the Protocol Level
-        // is not supported by the Server [MQTT-3.1.2-2].
-        if protocol != Protocol::default() {
-            bail!(ErrorKind::ConnectFailed(
-                ConnectReturnCode::UnacceptableProtocolVersion,
-            ))
-        }
-
-        if !ClientId::is_valid(&client_id) {
-            bail!(ErrorKind::ConnectFailed(
-                ConnectReturnCode::IdentifierRejected,
-            ))
-        }
-
-        if !clean_session {
-            // If CleanSession is set to 0, the Server MUST resume communications with the Client based on state
-            // from the current Session (as identified by the Client identifier).
-            // If there is no Session associated with the Client identifier the Server MUST create a new Session.
-            // The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
-
-            if let Some(session) = self.session_manager.borrow().get(&client_id) {
-                debug!("resume session with client_id #{}", client_id);
-
-                // If the ClientId represents a Client already connected to the Server
-                // then the Server MUST disconnect the existing Client [MQTT-3.1.4-2].
-
-                // TODO
+    ) -> Result<(Option<Packet<'b>>, State<'a, S, A>)> {
+        match *self.state.borrow() {
+            State::Connecting(ref connecting) => {
+                if let Packet::Connect {
+                    protocol,
+                    clean_session,
+                    keep_alive,
+                    last_will,
+                    client_id,
+                    username,
+                    password,
+                } = request
                 {
-                    let mut s = session.borrow_mut();
+                    match connecting.connect(
+                        protocol,
+                        clean_session,
+                        Duration::from_secs(u64::from(keep_alive)),
+                        last_will,
+                        client_id.into_owned(),
+                        username,
+                        password,
+                    ) {
+                        Ok(connected) => {
+                            trace!("client connected: {:?}", connected.session());
 
-                    s.set_keep_alive(keep_alive);
-                    s.set_last_will(last_will);
+                            Ok((
+                                Some(Packet::ConnectAck {
+                                    session_present: !clean_session && connected.is_resumed(),
+                                    return_code: ConnectReturnCode::ConnectionAccepted,
+                                }),
+                                State::Connected(connected),
+                            ))
+                        }
+                        Err(Error(kind, _)) => {
+                            trace!("client connect failed, {:?}", kind);
+
+                            Ok((
+                                Some(Packet::ConnectAck {
+                                    session_present: false,
+                                    return_code: match kind {
+                                        ErrorKind::ConnectFailed(code) => code,
+                                        _ => ConnectReturnCode::ServiceUnavailable,
+                                    },
+                                }),
+                                State::Connecting(connecting.clone()),
+                            ))
+                        }
+                    }
+                } else {
+                    bail!(ErrorKind::ProtocolViolation)
                 }
-
-                // TODO resume session
-
-                self.state.borrow_mut().connect(Rc::clone(&session));
-
-                return Ok((session, false));
             }
-        } else {
-            // If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
-            // This Session lasts as long as the Network Connection.
-            // State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
-            self.session_manager.borrow_mut().remove(&client_id);
-        }
+            State::Connected(ref connected) => {
+                let mut connected = connected.clone();
 
-        if let Some(ref auth_manager) = self.auth_manager {
-            if auth_manager
-                .borrow_mut()
-                .auth(client_id.as_str().into(), username, password)
-                .is_err()
-            {
-                bail!(ErrorKind::ConnectFailed(
-                    ConnectReturnCode::BadUserNameOrPassword,
-                ))
+                let response = match request {
+                    Packet::Publish {
+                        dup,
+                        retain,
+                        qos,
+                        topic,
+                        packet_id,
+                        payload,
+                    } => {
+                        connected
+                            .session_mut()
+                            .message_receiver
+                            .on_publish(dup, retain, qos, topic, packet_id, payload)
+                            .map(|packet_id| {
+                                packet_id.and_then(|packet_id| match qos {
+                                    QoS::AtLeastOnce => Some(Packet::PublishAck { packet_id }),
+                                    QoS::ExactlyOnce => Some(Packet::PublishReceived { packet_id }),
+                                    _ => None,
+                                })
+                            })?
+                    }
+                    Packet::PublishAck { packet_id } => {
+                        connected
+                            .session_mut()
+                            .message_sender
+                            .on_publish_ack(packet_id)
+                            .map(|_| None)?
+                    }
+                    Packet::PublishReceived { packet_id } => {
+                        connected
+                            .session_mut()
+                            .message_sender
+                            .on_publish_received(packet_id)
+                            .map(|packet_id| Some(Packet::PublishRelease { packet_id }))?
+                    }
+                    Packet::PublishComplete { packet_id } => {
+                        connected
+                            .session_mut()
+                            .message_sender
+                            .on_publish_complete(packet_id)
+                            .map(|_| None)?
+                    }
+                    Packet::PublishRelease { packet_id } => {
+                        connected
+                            .session_mut()
+                            .message_receiver
+                            .on_publish_release(packet_id)
+                            .map(|_| None)?
+                    }
+                    Packet::Subscribe {
+                        packet_id,
+                        topic_filters,
+                    } => {
+                        trace!("subscribe filters: {:?}", topic_filters);
+
+                        Some(Packet::SubscribeAck {
+                            packet_id,
+                            status: topic_filters
+                                .iter()
+                                .map(|&(ref filter, qos)| match connected
+                                    .session_mut()
+                                    .subscribe(&filter, qos) {
+                                    Ok(_) => {
+                                        trace!("subscribed filter {} with QoS {:?}", filter, qos);
+
+                                        SubscribeReturnCode::Success(qos)
+                                    }
+                                    Err(err) => {
+                                        warn!("subscribe topic {} failed, {}", filter, err);
+
+                                        SubscribeReturnCode::Failure
+                                    }
+                                })
+                                .collect(),
+                        })
+                    }
+                    Packet::Unsubscribe {
+                        packet_id,
+                        topic_filters,
+                    } => {
+                        trace!("unsubscribe filters: {:?}", topic_filters);
+
+                        for filter in topic_filters {
+                            connected.session_mut().unsubscribe(&filter);
+                        }
+
+                        Some(Packet::UnsubscribeAck { packet_id })
+                    }
+                    Packet::PingRequest => {
+                        trace!("ping");
+
+                        connected.touch();
+
+                        Some(Packet::PingResponse)
+                    }
+                    Packet::Disconnect => {
+                        trace!("disconnect");
+
+                        connected.session_mut().set_last_will(None);
+
+                        bail!(ErrorKind::ConnectionClosed);
+                    }
+                    _ => bail!(ErrorKind::ProtocolViolation),
+                };
+
+                Ok((response, State::Connected(connected)))
             }
+            State::Disconnected => bail!(ErrorKind::ProtocolViolation),
         }
-
-        let session = Rc::new(RefCell::new(Session::new(
-            client_id.clone(),
-            keep_alive,
-            last_will.map(|last_will| last_will.into_owned()),
-        )));
-
-        self.session_manager.borrow_mut().insert(
-            client_id,
-            Rc::clone(&session),
-        );
-
-        self.state.borrow_mut().connect(Rc::clone(&session));
-
-        Ok((session, true))
-    }
-}
-
-impl<'a, S, A> Inner<'a, S, A> {
-    pub fn connected(&self) -> bool {
-        self.state.borrow().connected()
-    }
-
-    pub fn session(&self) -> Option<Rc<RefCell<Session<'a>>>> {
-        self.state.borrow().session()
-    }
-
-    pub fn shutdown(&self) {
-        self.state.borrow_mut().close()
-    }
-
-    pub fn disconnect(&self) {
-        // MUST discard any Will Message associated with the current connection without publishing it,
-        // as described in Section 3.1.2.5 [MQTT-3.14.4-3].
-
-        if let Some(session) = self.state.borrow().session() {
-            session.borrow_mut().set_last_will(None)
-        }
-
-        self.state.borrow_mut().close()
-    }
-
-    pub fn touch(&self) -> Result<()> {
-        self.state.borrow_mut().touch()
     }
 }
 
 #[cfg(test)]
 pub mod tests {
+    use std::borrow::Cow;
+
     use futures::Async;
     use tokio_service::Service;
 
     use super::*;
+    use core::{LastWill, Protocol};
     use server::InMemorySessionManager;
 
     impl AuthManager for () {
@@ -398,6 +281,12 @@ pub mod tests {
             Rc::new(RefCell::new(InMemorySessionManager::default())),
             None,
         )
+    }
+
+    fn new_test_conn_with_session_manager<'a, S>(
+        session_manager: Rc<RefCell<S>>,
+    ) -> Conn<'a, S, ()> {
+        Conn::new(session_manager, None)
     }
 
     fn new_test_conn_with_auth<'a>(
@@ -500,9 +389,12 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         }))));
 
-        assert!(conn.inner.connected());
+        let connected = conn.connected();
 
-        let session = conn.inner.session().unwrap();
+        assert!(connected.is_some());
+
+        let connected = connected.unwrap();
+        let session = connected.session();
 
         assert!(session.borrow().last_will().is_some());
     }
@@ -517,7 +409,8 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         }))));
 
-        let session = conn.inner.session().unwrap();
+        let connected = conn.connected().unwrap();
+        let session = connected.session();
 
         // On receipt of DISCONNECT the Server:
         //      MUST discard any Will Message associated with the current connection without publishing it,
@@ -525,13 +418,14 @@ pub mod tests {
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
-        assert!(!conn.inner.connected());
+        assert!(conn.connected().is_none());
         assert!(session.borrow().last_will().is_none());
     }
 
     #[test]
     fn test_resume_session() {
-        let conn = new_test_conn();
+        let session_manager = Rc::new(RefCell::new(InMemorySessionManager::default()));
+        let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -544,6 +438,8 @@ pub mod tests {
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
+
+        let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // If the Server accepts a connection with CleanSession set to 0,
         // the value set in Session Present depends on whether the Server already has stored Session state
@@ -554,12 +450,13 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         }))));
 
-        assert!(conn.inner.connected());
+        assert!(conn.connected().is_some());
     }
 
     #[test]
     fn test_clear_session() {
-        let conn = new_test_conn();
+        let session_manager = Rc::new(RefCell::new(InMemorySessionManager::default()));
+        let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -567,13 +464,16 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         }))));
 
-        let session = conn.inner.session().unwrap();
+        let connected = conn.connected().unwrap();
+        let session = connected.session();
 
         // On receipt of DISCONNECT the Server:
         //      MUST discard any Will Message associated with the current connection without publishing it,
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
+
+        let conn = new_test_conn_with_session_manager(session_manager);
 
         assert_matches!(conn.call(Packet::Connect {
             protocol: Protocol::default(),
@@ -593,9 +493,10 @@ pub mod tests {
             return_code: ConnectReturnCode::ConnectionAccepted
         }))));
 
-        assert!(conn.inner.connected());
+        assert!(conn.connected().is_some());
 
-        let new_session = conn.inner.session().unwrap();
+        let connected = conn.connected().unwrap();
+        let new_session = connected.session();
 
         assert_ne!(session.borrow().last_will(), new_session.borrow().last_will());
         assert_eq!(new_session.borrow().last_will().unwrap(), &LastWill {
@@ -629,7 +530,7 @@ pub mod tests {
             password: None,
         }).poll(), Err(Error(ErrorKind::ProtocolViolation, _)));
 
-        assert!(!conn.inner.connected());
+        assert!(conn.connected().is_none());
     }
 
     #[test]
