@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::Deref;
 use time::now;
 
 use slab::Slab;
@@ -20,7 +21,7 @@ pub trait MessageForwarder {
 }
 
 #[derive(Debug)]
-enum SendState<'a> {
+pub enum SendState<'a> {
     Sending(Message<'a>),
     Received(PacketId),
 }
@@ -36,6 +37,14 @@ impl<'a> Default for MessageSender<'a> {
     }
 }
 
+impl<'a> Deref for MessageSender<'a> {
+    type Target = Slab<SendState<'a>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.messages
+    }
+}
+
 impl<'a> MessageSender<'a> {
     pub fn publish(&mut self, topic: Cow<'a, str>, payload: Cow<'a, [u8]>) -> Result<PacketId> {
         let entry = self.messages.vacant_entry();
@@ -48,11 +57,17 @@ impl<'a> MessageSender<'a> {
             ts: now().to_timespec().sec,
         }));
 
-        Ok(packet_id)
+        Ok(packet_id + 1)
     }
 
     pub fn on_publish_ack(&mut self, packet_id: PacketId) -> Result<PacketId> {
-        match self.messages.remove(packet_id as usize) {
+        let key = packet_id as usize - 1;
+
+        if !self.messages.contains(key) {
+            bail!(ErrorKind::InvalidPacketId)
+        }
+
+        match self.messages.remove(key) {
             SendState::Sending(Message { packet_id, .. }) => {
                 trace!("message #{} acked", packet_id);
 
@@ -63,7 +78,7 @@ impl<'a> MessageSender<'a> {
     }
 
     pub fn on_publish_received(&mut self, packet_id: PacketId) -> Result<PacketId> {
-        let state = self.messages.get_mut(packet_id as usize);
+        let state = self.messages.get_mut(packet_id as usize - 1);
 
         match state {
             Some(&mut SendState::Sending(Message { packet_id, .. })) => {
@@ -73,19 +88,23 @@ impl<'a> MessageSender<'a> {
 
                 Ok(packet_id)
             }
+            None => bail!(ErrorKind::InvalidPacketId),
             _ => bail!(ErrorKind::UnexpectedState),
         }
     }
 
     pub fn on_publish_complete(&mut self, packet_id: PacketId) -> Result<PacketId> {
-        match self.messages.get(packet_id as usize) {
+        let key = packet_id as usize - 1;
+
+        match self.messages.get(key) {
             Some(&SendState::Received(packet_id)) => {
                 trace!("message #{} compileted", packet_id);
 
-                self.messages.remove(packet_id as usize);
+                self.messages.remove(key);
 
                 Ok(packet_id)
             }
+            None => bail!(ErrorKind::InvalidPacketId),
             _ => bail!(ErrorKind::UnexpectedState),
         }
     }
@@ -137,5 +156,43 @@ impl<'a> MessageReceiver<'a> {
         self.messages.remove(&packet_id).ok_or_else(|| {
             ErrorKind::UnexpectedState.into()
         })
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use errors::Error;
+
+    #[test]
+    fn test_message_sender() {
+        let mut sender = MessageSender::default();
+
+        assert_eq!(sender.len(), 0);
+
+        let foo = sender
+            .publish(Cow::from("topic"), Cow::from(&b"foo"[..]))
+            .unwrap();
+        let bar = sender
+            .publish(Cow::from("topic"), Cow::from(&b"bar"[..]))
+            .unwrap();
+
+        assert_eq!(foo, 1);
+        assert_eq!(bar, 2);
+        assert_eq!(sender.len(), 2);
+
+        assert_matches!(sender[foo as usize-1], SendState::Sending(Message { packet_id: foo, .. }));
+        assert_matches!(sender.on_publish_ack(foo), Ok(foo));
+        assert!(sender.get(foo as usize-1).is_none());
+
+        assert_matches!(sender[bar as usize-1], SendState::Sending(Message { packet_id: bar, .. }));
+        assert_matches!(sender.on_publish_received(bar), Ok(bar));
+        assert_matches!(sender[bar as usize-1], SendState::Received(bar));
+        assert_matches!(sender.on_publish_complete(bar), Ok(bar));
+        assert!(sender.get(bar as usize-1).is_none());
+
+        assert_matches!(sender.on_publish_ack(foo), Err(Error(ErrorKind::InvalidPacketId, _)));
+        assert_matches!(sender.on_publish_received(foo), Err(Error(ErrorKind::InvalidPacketId, _)));
+        assert_matches!(sender.on_publish_complete(foo), Err(Error(ErrorKind::InvalidPacketId, _)));
     }
 }
