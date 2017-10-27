@@ -39,6 +39,7 @@ error_chain!{
 
 struct Config {
     addr: SocketAddr,
+    users: Vec<(String, Option<Vec<u8>>)>,
 }
 
 fn parse_cmdline() -> Result<Config> {
@@ -49,6 +50,7 @@ fn parse_cmdline() -> Result<Config> {
 
     opts.optflag("h", "help", "print this help menu");
     opts.optopt("l", "listen", "listen on the address", "ADDR");
+    opts.optopt("u", "user", "add username with password", "USER:PASS");
 
     let matches = opts.parse(&args[1..])?;
 
@@ -62,9 +64,22 @@ fn parse_cmdline() -> Result<Config> {
 
     Ok(Config {
         addr: matches
-            .opt_str("l")
+            .opt_str("listen")
             .ok_or_else(|| ErrorKind::MissingArgument("listen".to_owned()))?
             .parse()?,
+        users: matches
+            .opt_strs("user")
+            .into_iter()
+            .map(|s| if let Some(off) = s.find(':') {
+                let (username, password) = s.split_at(off);
+                (
+                    username.to_owned(),
+                    Some(password.as_bytes()[1..].to_owned()),
+                )
+            } else {
+                (s, None)
+            })
+            .collect(),
     })
 }
 

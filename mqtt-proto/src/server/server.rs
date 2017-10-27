@@ -22,6 +22,23 @@ impl<S> Server<S, MockAuthenticator> {
     }
 }
 
+impl<S, A> Server<S, A>
+where
+    A: Authenticator,
+{
+    pub fn with_authenticator(
+        handle: &Handle,
+        sessions: Arc<Mutex<S>>,
+        authenticator: Arc<Mutex<A>>,
+    ) -> Self {
+        Server {
+            remote: handle.remote().clone(),
+            sessions,
+            authenticator: Some(authenticator),
+        }
+    }
+}
+
 impl<'a, S, A> NewService for Server<S, A>
 where
     S: SessionProvider<
