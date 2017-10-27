@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::result::Result;
 
-pub trait AuthManager: Clone {
+pub trait Authenticator: Clone {
     type Error;
 
     fn auth<'a>(

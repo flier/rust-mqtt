@@ -58,7 +58,7 @@ impl<'a> Session<'a> {
     }
 }
 
-pub trait SessionManager: Clone {
+pub trait SessionProvider: Clone {
     type Key;
     type Value;
 
@@ -70,11 +70,11 @@ pub trait SessionManager: Clone {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct InMemorySessionManager<'a> {
+pub struct InMemorySessionProvider<'a> {
     sessions: HashMap<String, Rc<RefCell<Session<'a>>>>,
 }
 
-impl<'a> SessionManager for InMemorySessionManager<'a> {
+impl<'a> SessionProvider for InMemorySessionProvider<'a> {
     type Key = String;
     type Value = Rc<RefCell<Session<'a>>>;
 

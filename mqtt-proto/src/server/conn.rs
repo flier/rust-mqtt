@@ -7,7 +7,7 @@ use tokio_service::Service;
 
 use core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
-use server::{AuthManager, Connected, Session, SessionManager, State};
+use server::{Authenticator, Connected, Session, SessionProvider, State};
 
 /// MQTT service
 pub struct Conn<'a, S, A> {
@@ -29,11 +29,11 @@ impl<'a, S, A> Conn<'a, S, A> {
 
 impl<'a, S, A> Service for Conn<'a, S, A>
 where
-    S: SessionManager<
+    S: SessionProvider<
         Key = String,
         Value = Rc<RefCell<Session<'a>>>,
     >,
-    A: AuthManager,
+    A: Authenticator,
 {
     type Request = Packet<'a>;
     type Response = Option<Packet<'a>>;
@@ -49,8 +49,8 @@ where
 
 impl<'a, S, A> Conn<'a, S, A>
 where
-    S: SessionManager<Key = String, Value = Rc<RefCell<Session<'a>>>>,
-    A: AuthManager,
+    S: SessionProvider<Key = String, Value = Rc<RefCell<Session<'a>>>>,
+    A: Authenticator,
 {
     fn handle<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
         let (next_state, result) = match self.handle_request(request) {
@@ -242,9 +242,9 @@ pub mod tests {
 
     use super::*;
     use core::{LastWill, Protocol};
-    use server::InMemorySessionManager;
+    use server::InMemorySessionProvider;
 
-    impl AuthManager for () {
+    impl Authenticator for () {
         type Error = Error;
 
         fn auth<'a>(
@@ -257,7 +257,7 @@ pub mod tests {
         }
     }
 
-    impl AuthManager for (String, Vec<u8>) {
+    impl Authenticator for (String, Vec<u8>) {
         type Error = Error;
 
         fn auth<'a>(
@@ -276,9 +276,9 @@ pub mod tests {
         }
     }
 
-    fn new_test_conn<'a>() -> Conn<'a, InMemorySessionManager<'a>, ()> {
+    fn new_test_conn<'a>() -> Conn<'a, InMemorySessionProvider<'a>, ()> {
         Conn::new(
-            Rc::new(RefCell::new(InMemorySessionManager::default())),
+            Rc::new(RefCell::new(InMemorySessionProvider::default())),
             None,
         )
     }
@@ -292,9 +292,9 @@ pub mod tests {
     fn new_test_conn_with_auth<'a>(
         username: &str,
         password: &[u8],
-    ) -> Conn<'a, InMemorySessionManager<'a>, (String, Vec<u8>)> {
+    ) -> Conn<'a, InMemorySessionProvider<'a>, (String, Vec<u8>)> {
         Conn::new(
-            Rc::new(RefCell::new(InMemorySessionManager::default())),
+            Rc::new(RefCell::new(InMemorySessionProvider::default())),
             Some(Rc::new(
                 RefCell::new((username.to_owned(), password.to_owned())),
             )),
@@ -424,7 +424,7 @@ pub mod tests {
 
     #[test]
     fn test_resume_session() {
-        let session_manager = Rc::new(RefCell::new(InMemorySessionManager::default()));
+        let session_manager = Rc::new(RefCell::new(InMemorySessionProvider::default()));
         let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -455,7 +455,7 @@ pub mod tests {
 
     #[test]
     fn test_clear_session() {
-        let session_manager = Rc::new(RefCell::new(InMemorySessionManager::default()));
+        let session_manager = Rc::new(RefCell::new(InMemorySessionProvider::default()));
         let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].

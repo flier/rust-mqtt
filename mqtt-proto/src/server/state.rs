@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use core::{ClientId, ConnectReturnCode, LastWill, Protocol};
 use errors::{ErrorKind, Result};
-use server::{AuthManager, Session, SessionManager};
+use server::{Authenticator, Session, SessionProvider};
 
 #[derive(Clone, Debug)]
 pub enum State<'a, S, A> {
@@ -55,8 +55,8 @@ impl<'a, S, A> Default for State<'a, S, A> {
 
 impl<'a, S, A> Connecting<S, A>
 where
-    S: SessionManager<Key = String, Value = Rc<RefCell<Session<'a>>>>,
-    A: AuthManager,
+    S: SessionProvider<Key = String, Value = Rc<RefCell<Session<'a>>>>,
+    A: Authenticator,
 {
     pub fn connect(
         &self,
