@@ -245,6 +245,7 @@ pub mod tests {
     use server::InMemorySessionProvider;
 
     impl Authenticator for () {
+        type Profile = ();
         type Error = Error;
 
         fn auth<'a>(
@@ -254,25 +255,6 @@ pub mod tests {
             _password: Option<Cow<'a, [u8]>>,
         ) -> Result<()> {
             Ok(())
-        }
-    }
-
-    impl Authenticator for (String, Vec<u8>) {
-        type Error = Error;
-
-        fn auth<'a>(
-            &mut self,
-            _client_id: Cow<'a, str>,
-            username: Option<Cow<'a, str>>,
-            password: Option<Cow<'a, [u8]>>,
-        ) -> Result<()> {
-            if username == Some(self.0.clone().into()) && password == Some(self.1.clone().into()) {
-                Ok(())
-            } else {
-                bail!(ErrorKind::ConnectFailed(
-                    ConnectReturnCode::BadUserNameOrPassword,
-                ))
-            }
         }
     }
 
@@ -287,18 +269,6 @@ pub mod tests {
         session_manager: Rc<RefCell<S>>,
     ) -> Conn<'a, S, ()> {
         Conn::new(session_manager, None)
-    }
-
-    fn new_test_conn_with_auth<'a>(
-        username: &str,
-        password: &[u8],
-    ) -> Conn<'a, InMemorySessionProvider<'a>, (String, Vec<u8>)> {
-        Conn::new(
-            Rc::new(RefCell::new(InMemorySessionProvider::default())),
-            Some(Rc::new(
-                RefCell::new((username.to_owned(), password.to_owned())),
-            )),
-        )
     }
 
     lazy_static! {

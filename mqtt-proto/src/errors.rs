@@ -17,5 +17,6 @@ error_chain! {
         }
         InvalidPacketId
         UnexpectedState
+        BadUserNameOrPassword
     }
 }
