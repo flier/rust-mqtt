@@ -133,7 +133,7 @@ where
                         connected
                             .session_mut()
                             .message_receiver
-                            .on_publish(dup, retain, qos, topic, packet_id, payload)
+                            .on_publish(dup, retain, qos, packet_id, topic, payload)
                             .map(|packet_id| {
                                 packet_id.and_then(|packet_id| match qos {
                                     QoS::AtLeastOnce => Some(Packet::PublishAck { packet_id }),
