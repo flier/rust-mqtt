@@ -48,7 +48,7 @@ impl<'a> Deref for MessageSender<'a> {
 impl<'a> MessageSender<'a> {
     pub fn publish(&mut self, topic: Cow<'a, str>, payload: Cow<'a, [u8]>) -> Result<PacketId> {
         let entry = self.messages.vacant_entry();
-        let packet_id = entry.key() as PacketId;
+        let packet_id = entry.key() as PacketId + 1;
 
         entry.insert(SendState::Sending(Message {
             packet_id,
@@ -57,7 +57,7 @@ impl<'a> MessageSender<'a> {
             ts: now().to_timespec().sec,
         }));
 
-        Ok(packet_id + 1)
+        Ok(packet_id)
     }
 
     pub fn on_publish_ack(&mut self, packet_id: PacketId) -> Result<PacketId> {
@@ -126,8 +126,8 @@ impl<'a> Deref for MessageReceiver<'a> {
 impl<'a> MessageReceiver<'a> {
     pub fn on_publish(
         &mut self,
-        dup: bool,
-        retain: bool,
+        _dup: bool,
+        _retain: bool,
         qos: QoS,
         packet_id: Option<PacketId>,
         topic: Cow<'a, str>,
@@ -189,14 +189,14 @@ pub mod tests {
         assert_eq!(bar, 2);
         assert_eq!(sender.len(), 2);
 
-        assert_matches!(sender[foo as usize-1], SendState::Sending(Message { packet_id: foo, .. }));
-        assert_matches!(sender.on_publish_ack(foo), Ok(foo));
+        assert_matches!(sender[foo as usize-1], SendState::Sending(Message { packet_id: 1, .. }));
+        assert_matches!(sender.on_publish_ack(foo), Ok(1));
         assert!(sender.get(foo as usize-1).is_none());
 
-        assert_matches!(sender[bar as usize-1], SendState::Sending(Message { packet_id: bar, .. }));
-        assert_matches!(sender.on_publish_received(bar), Ok(bar));
-        assert_matches!(sender[bar as usize-1], SendState::Received(bar));
-        assert_matches!(sender.on_publish_complete(bar), Ok(bar));
+        assert_matches!(sender[bar as usize-1], SendState::Sending(Message { packet_id: 2, .. }));
+        assert_matches!(sender.on_publish_received(bar), Ok(2));
+        assert_matches!(sender[bar as usize-1], SendState::Received(2));
+        assert_matches!(sender.on_publish_complete(bar), Ok(2));
         assert!(sender.get(bar as usize-1).is_none());
 
         assert_matches!(sender.on_publish_ack(foo), Err(Error(ErrorKind::InvalidPacketId, _)));

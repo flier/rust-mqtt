@@ -42,7 +42,7 @@ impl Authenticator for InMemoryAuthenticator {
 
     fn authenticate<'a>(
         &mut self,
-        client_id: Cow<'a, str>,
+        _client_id: Cow<'a, str>,
         username: Option<Cow<'a, str>>,
         password: Option<Cow<'a, [u8]>>,
     ) -> Result<()> {
