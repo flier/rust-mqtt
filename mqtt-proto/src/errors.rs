@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::{PoisonError, TryLockError};
 
 error_chain! {
@@ -36,5 +37,11 @@ impl<T> From<PoisonError<T>> for Error {
 impl<T> From<TryLockError<T>> for Error {
     fn from(err: TryLockError<T>) -> Self {
         ErrorKind::LockError(err.to_string()).into()
+    }
+}
+
+impl From<Error> for io::Error {
+    fn from(err: Error) -> Self {
+        io::Error::new(io::ErrorKind::Other, err.to_string())
     }
 }

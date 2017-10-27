@@ -2,11 +2,9 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use tokio_core::reactor::{Handle, Remote};
-use tokio_service::NewService;
+use tokio_service::{NewService, Service};
 
-use core::Packet;
-use errors::Error;
-use server::{Authenticator, Conn, Session, SessionProvider};
+use server::{Authenticator, Conn, MockAuthenticator, Session, SessionProvider};
 
 pub struct Server<S, A> {
     remote: Remote,
@@ -14,16 +12,12 @@ pub struct Server<S, A> {
     authenticator: Option<Arc<Mutex<A>>>,
 }
 
-impl<S, A> Server<S, A> {
-    pub fn new(
-        handle: &Handle,
-        sessions: Arc<Mutex<S>>,
-        authenticator: Option<Arc<Mutex<A>>>,
-    ) -> Self {
+impl<S> Server<S, MockAuthenticator> {
+    pub fn new(handle: &Handle, sessions: Arc<Mutex<S>>) -> Self {
         Server {
             remote: handle.remote().clone(),
             sessions,
-            authenticator,
+            authenticator: None,
         }
     }
 }
@@ -36,9 +30,9 @@ where
     >,
     A: Authenticator,
 {
-    type Request = Packet<'a>;
-    type Response = Option<Packet<'a>>;
-    type Error = Error;
+    type Request = <Self::Instance as Service>::Request;
+    type Response = <Self::Instance as Service>::Response;
+    type Error = <Self::Instance as Service>::Error;
     type Instance = Conn<'a, S, A>;
 
     /// Create and return a new service value.

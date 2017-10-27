@@ -17,7 +17,7 @@ where
     Self: 'static,
 {
     type Request = Packet<'a>;
-    type Response = Packet<'a>;
+    type Response = Option<Packet<'a>>;
     type Transport = Framed<T, Codec<'a>>;
     type BindTransport = Result<Self::Transport, io::Error>;
 
@@ -30,7 +30,7 @@ impl<'a, T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for Proto<'a>
 where
     Self: 'static,
 {
-    type Request = Packet<'a>;
+    type Request = Option<Packet<'a>>;
     type Response = Packet<'a>;
     type Transport = Framed<T, Codec<'a>>;
     type BindTransport = Result<Self::Transport, io::Error>;

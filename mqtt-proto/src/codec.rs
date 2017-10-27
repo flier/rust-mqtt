@@ -14,17 +14,18 @@ use core::{Packet, ReadPacketExt, WritePacketExt, decode_variable_length_usize};
 pub struct Codec<'a>(PhantomData<&'a u8>);
 
 impl<'a> Encoder for Codec<'a> {
-    type Item = (RequestId, Packet<'a>);
+    type Item = (RequestId, Option<Packet<'a>>);
     type Error = io::Error;
 
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
-        let (packet_id, packet) = msg;
-        let mut bytes = Vec::new();
-        let packet_size = bytes.write_packet(&packet)?;
+        if let (packet_id, Some(packet)) = msg {
+            let mut bytes = Vec::new();
+            let packet_size = bytes.write_packet(&packet)?;
 
-        trace!("encode packet #{} to {} bytes", packet_id, packet_size);
+            trace!("encode packet #{} to {} bytes", packet_id, packet_size);
 
-        buf.extend(&bytes[..packet_size]);
+            buf.extend(&bytes[..packet_size]);
+        }
 
         Ok(())
     }
