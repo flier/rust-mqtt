@@ -242,32 +242,17 @@ pub mod tests {
 
     use super::*;
     use core::{LastWill, Protocol};
-    use server::InMemorySessionProvider;
+    use server::{InMemorySessionProvider, MockAuthenticator};
 
-    impl Authenticator for () {
-        type Profile = ();
-        type Error = Error;
-
-        fn auth<'a>(
-            &mut self,
-            _client_id: Cow<'a, str>,
-            _username: Option<Cow<'a, str>>,
-            _password: Option<Cow<'a, [u8]>>,
-        ) -> Result<()> {
-            Ok(())
-        }
-    }
-
-    fn new_test_conn<'a>() -> Conn<'a, InMemorySessionProvider<'a>, ()> {
-        Conn::new(
+    fn new_test_conn<'a>() -> Conn<'a, InMemorySessionProvider<'a>, MockAuthenticator> {
+        new_test_conn_with_session_manager(
             Rc::new(RefCell::new(InMemorySessionProvider::default())),
-            None,
         )
     }
 
     fn new_test_conn_with_session_manager<'a, S>(
         session_manager: Rc<RefCell<S>>,
-    ) -> Conn<'a, S, ()> {
+    ) -> Conn<'a, S, MockAuthenticator> {
         Conn::new(session_manager, None)
     }
 

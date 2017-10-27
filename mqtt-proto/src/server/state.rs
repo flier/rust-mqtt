@@ -126,7 +126,7 @@ where
         if let Some(ref auth_manager) = self.auth_manager {
             if auth_manager
                 .borrow_mut()
-                .auth(client_id.as_str().into(), username, password)
+                .authenticate(client_id.as_str().into(), username, password)
                 .is_err()
             {
                 bail!(ErrorKind::ConnectFailed(
