@@ -2,8 +2,10 @@ mod state;
 mod session;
 mod auth;
 mod conn;
+mod server;
 
 pub use self::auth::{Authenticator, InMemoryAuthenticator, MockAuthenticator};
 pub use self::conn::Conn;
 pub use self::session::{InMemorySessionProvider, Session, SessionProvider};
 pub use self::state::{Connected, Connecting, State};
+pub use self::server::Server;

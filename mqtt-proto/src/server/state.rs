@@ -1,6 +1,6 @@
 use std::borrow::Cow;
-use std::cell::{Cell, RefCell, RefMut};
-use std::rc::Rc;
+use std::cell::Cell;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use core::{ClientId, ConnectReturnCode, LastWill, Protocol};
@@ -16,21 +16,21 @@ pub enum State<'a, S, A> {
 
 #[derive(Clone, Debug)]
 pub struct Connecting<S, A> {
-    session_manager: Rc<RefCell<S>>,
-    auth_manager: Option<Rc<RefCell<A>>>,
+    session_manager: Arc<Mutex<S>>,
+    auth_manager: Option<Arc<Mutex<A>>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Connected<'a> {
-    session: Rc<RefCell<Session<'a>>>,
+    session: Arc<Mutex<Session<'a>>>,
     latest: Cell<Instant>,
     resumed: bool,
 }
 
 impl<'a, S, A> State<'a, S, A> {
     pub fn new(
-        session_manager: Rc<RefCell<S>>,
-        auth_manager: Option<Rc<RefCell<A>>>,
+        session_manager: Arc<Mutex<S>>,
+        auth_manager: Option<Arc<Mutex<A>>>,
     ) -> State<'a, S, A> {
         State::Connecting(Connecting {
             session_manager,
@@ -55,7 +55,7 @@ impl<'a, S, A> Default for State<'a, S, A> {
 
 impl<'a, S, A> Connecting<S, A>
 where
-    S: SessionProvider<Key = String, Value = Rc<RefCell<Session<'a>>>>,
+    S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
     A: Authenticator,
 {
     pub fn connect(
@@ -94,7 +94,7 @@ where
             // If there is no Session associated with the Client identifier the Server MUST create a new Session.
             // The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
 
-            if let Some(session) = self.session_manager.borrow().get(&client_id) {
+            if let Some(session) = self.session_manager.lock()?.get(&client_id) {
                 debug!("resume session with client_id #{}", client_id);
 
                 // If the ClientId represents a Client already connected to the Server
@@ -102,7 +102,7 @@ where
 
                 // TODO
                 {
-                    let mut s = session.borrow_mut();
+                    let mut s = session.lock()?;
 
                     s.set_keep_alive(keep_alive);
                     s.set_last_will(last_will);
@@ -111,7 +111,7 @@ where
                 // TODO resume session
 
                 return Ok(Connected {
-                    session: Rc::clone(&session),
+                    session: session.clone(),
                     latest: Cell::new(Instant::now()),
                     resumed: true,
                 });
@@ -120,12 +120,12 @@ where
             // If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
             // This Session lasts as long as the Network Connection.
             // State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
-            self.session_manager.borrow_mut().remove(&client_id);
+            self.session_manager.lock()?.remove(&client_id);
         }
 
         if let Some(ref auth_manager) = self.auth_manager {
             if auth_manager
-                .borrow_mut()
+                .lock()?
                 .authenticate(client_id.as_str().into(), username, password)
                 .is_err()
             {
@@ -135,19 +135,19 @@ where
             }
         }
 
-        let session = Rc::new(RefCell::new(Session::new(
+        let session = Arc::new(Mutex::new(Session::new(
             client_id.clone(),
             keep_alive,
             last_will.map(|last_will| last_will.into_owned()),
         )));
 
-        self.session_manager.borrow_mut().insert(
+        self.session_manager.lock()?.insert(
             client_id,
-            Rc::clone(&session),
+            session.clone(),
         );
 
         Ok(Connected {
-            session: Rc::clone(&session),
+            session,
             latest: Cell::new(Instant::now()),
             resumed: false,
         })
@@ -156,12 +156,8 @@ where
 
 
 impl<'a> Connected<'a> {
-    pub fn session(&self) -> Rc<RefCell<Session<'a>>> {
-        Rc::clone(&self.session)
-    }
-
-    pub fn session_mut(&self) -> RefMut<Session<'a>> {
-        self.session.borrow_mut()
+    pub fn session(&self) -> Arc<Mutex<Session<'a>>> {
+        self.session.clone()
     }
 
     pub fn is_resumed(&self) -> bool {
@@ -172,12 +168,12 @@ impl<'a> Connected<'a> {
         self.latest.set(Instant::now())
     }
 
-    pub fn disconnect<S, A>(self) -> State<'a, S, A> {
+    pub fn disconnect<S, A>(self) -> Result<State<'a, S, A>> {
         // MUST discard any Will Message associated with the current connection without publishing it,
         // as described in Section 3.1.2.5 [MQTT-3.14.4-3].
 
-        self.session.borrow_mut().set_last_will(None);
+        self.session.lock()?.set_last_will(None);
 
-        State::Disconnected
+        Ok(State::Disconnected)
     }
 }

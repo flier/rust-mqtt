@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::{Future, IntoFuture};
@@ -16,8 +16,8 @@ pub struct Conn<'a, S, A> {
 
 impl<'a, S, A> Conn<'a, S, A> {
     pub fn new(
-        session_manager: Rc<RefCell<S>>,
-        auth_manager: Option<Rc<RefCell<A>>>,
+        session_manager: Arc<Mutex<S>>,
+        auth_manager: Option<Arc<Mutex<A>>>,
     ) -> Conn<'a, S, A> {
         Conn { state: RefCell::new(State::new(session_manager, auth_manager)) }
     }
@@ -31,7 +31,7 @@ impl<'a, S, A> Service for Conn<'a, S, A>
 where
     S: SessionProvider<
         Key = String,
-        Value = Rc<RefCell<Session<'a>>>,
+        Value = Arc<Mutex<Session<'a>>>,
     >,
     A: Authenticator,
 {
@@ -49,7 +49,7 @@ where
 
 impl<'a, S, A> Conn<'a, S, A>
 where
-    S: SessionProvider<Key = String, Value = Rc<RefCell<Session<'a>>>>,
+    S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
     A: Authenticator,
 {
     fn handle<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
@@ -130,8 +130,10 @@ where
                         packet_id,
                         payload,
                     } => {
-                        connected
-                            .session_mut()
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
+                        session
                             .message_receiver
                             .on_publish(dup, retain, qos, packet_id, topic, payload)
                             .map(|packet_id| {
@@ -143,32 +145,40 @@ where
                             })?
                     }
                     Packet::PublishAck { packet_id } => {
-                        connected
-                            .session_mut()
-                            .message_sender
-                            .on_publish_ack(packet_id)
-                            .map(|_| None)?
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
+                        session.message_sender.on_publish_ack(packet_id).map(
+                            |_| None,
+                        )?
                     }
                     Packet::PublishReceived { packet_id } => {
-                        connected
-                            .session_mut()
-                            .message_sender
-                            .on_publish_received(packet_id)
-                            .map(|packet_id| Some(Packet::PublishRelease { packet_id }))?
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
+                        session.message_sender.on_publish_received(packet_id).map(
+                            |packet_id| Some(Packet::PublishRelease { packet_id }),
+                        )?
                     }
                     Packet::PublishComplete { packet_id } => {
-                        connected
-                            .session_mut()
-                            .message_sender
-                            .on_publish_complete(packet_id)
-                            .map(|_| None)?
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
+                        session.message_sender.on_publish_complete(packet_id).map(
+                            |_| {
+                                None
+                            },
+                        )?
                     }
                     Packet::PublishRelease { packet_id } => {
-                        connected
-                            .session_mut()
-                            .message_receiver
-                            .on_publish_release(packet_id)
-                            .map(|_| None)?
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
+                        session.message_receiver.on_publish_release(packet_id).map(
+                            |_| {
+                                None
+                            },
+                        )?
                     }
                     Packet::Subscribe {
                         packet_id,
@@ -176,22 +186,33 @@ where
                     } => {
                         trace!("subscribe filters: {:?}", topic_filters);
 
+                        let session = connected.session();
+
                         Some(Packet::SubscribeAck {
                             packet_id,
                             status: topic_filters
                                 .iter()
-                                .map(|&(ref filter, qos)| match connected
-                                    .session_mut()
-                                    .subscribe(&filter, qos) {
-                                    Ok(_) => {
-                                        trace!("subscribed filter {} with QoS {:?}", filter, qos);
+                                .map(|&(ref filter, qos)| {
+                                    let session = session.clone();
+                                    let lock = session.try_lock().map_err(|err| err.into());
 
-                                        SubscribeReturnCode::Success(qos)
-                                    }
-                                    Err(err) => {
-                                        warn!("subscribe topic {} failed, {}", filter, err);
+                                    match lock.and_then(
+                                        move |mut session| session.subscribe(&filter, qos),
+                                    ) {
+                                        Ok(_) => {
+                                            trace!(
+                                                "subscribed filter {} with QoS {:?}",
+                                                filter,
+                                                qos
+                                            );
 
-                                        SubscribeReturnCode::Failure
+                                            SubscribeReturnCode::Success(qos)
+                                        }
+                                        Err(err) => {
+                                            warn!("subscribe topic {} failed, {}", filter, err);
+
+                                            SubscribeReturnCode::Failure
+                                        }
                                     }
                                 })
                                 .collect(),
@@ -203,8 +224,11 @@ where
                     } => {
                         trace!("unsubscribe filters: {:?}", topic_filters);
 
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
                         for filter in topic_filters {
-                            connected.session_mut().unsubscribe(&filter);
+                            session.unsubscribe(&filter);
                         }
 
                         Some(Packet::UnsubscribeAck { packet_id })
@@ -219,7 +243,10 @@ where
                     Packet::Disconnect => {
                         trace!("disconnect");
 
-                        connected.session_mut().set_last_will(None);
+                        let session = connected.session();
+                        let mut session = session.lock()?;
+
+                        session.set_last_will(None);
 
                         bail!(ErrorKind::ConnectionClosed);
                     }
@@ -245,13 +272,11 @@ pub mod tests {
     use server::{InMemorySessionProvider, MockAuthenticator};
 
     fn new_test_conn<'a>() -> Conn<'a, InMemorySessionProvider<'a>, MockAuthenticator> {
-        new_test_conn_with_session_manager(
-            Rc::new(RefCell::new(InMemorySessionProvider::default())),
-        )
+        new_test_conn_with_session_manager(Arc::new(Mutex::new(InMemorySessionProvider::default())))
     }
 
     fn new_test_conn_with_session_manager<'a, S>(
-        session_manager: Rc<RefCell<S>>,
+        session_manager: Arc<Mutex<S>>,
     ) -> Conn<'a, S, MockAuthenticator> {
         Conn::new(session_manager, None)
     }
@@ -351,7 +376,7 @@ pub mod tests {
         let connected = connected.unwrap();
         let session = connected.session();
 
-        assert!(session.borrow().last_will().is_some());
+        assert!(session.lock().unwrap().last_will().is_some());
     }
 
     #[test]
@@ -374,12 +399,12 @@ pub mod tests {
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
         assert!(conn.connected().is_none());
-        assert!(session.borrow().last_will().is_none());
+        assert!(session.lock().unwrap().last_will().is_none());
     }
 
     #[test]
     fn test_resume_session() {
-        let session_manager = Rc::new(RefCell::new(InMemorySessionProvider::default()));
+        let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
         let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -410,7 +435,7 @@ pub mod tests {
 
     #[test]
     fn test_clear_session() {
-        let session_manager = Rc::new(RefCell::new(InMemorySessionProvider::default()));
+        let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
         let conn = new_test_conn_with_session_manager(session_manager.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
@@ -453,8 +478,8 @@ pub mod tests {
         let connected = conn.connected().unwrap();
         let new_session = connected.session();
 
-        assert_ne!(session.borrow().last_will(), new_session.borrow().last_will());
-        assert_eq!(new_session.borrow().last_will().unwrap(), &LastWill {
+        assert_ne!(session.lock().unwrap().last_will(), new_session.lock().unwrap().last_will());
+        assert_eq!(new_session.lock().unwrap().last_will().unwrap(), &LastWill {
             qos: QoS::AtLeastOnce,
             retain: false,
             topic: Cow::from("another_topic"),

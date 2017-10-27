@@ -1,6 +1,5 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use core::{LastWill, QoS};
@@ -71,15 +70,15 @@ pub trait SessionProvider: Clone {
 
 #[derive(Clone, Debug, Default)]
 pub struct InMemorySessionProvider<'a> {
-    sessions: HashMap<String, Rc<RefCell<Session<'a>>>>,
+    sessions: HashMap<String, Arc<Mutex<Session<'a>>>>,
 }
 
 impl<'a> SessionProvider for InMemorySessionProvider<'a> {
     type Key = String;
-    type Value = Rc<RefCell<Session<'a>>>;
+    type Value = Arc<Mutex<Session<'a>>>;
 
     fn get(&self, key: &Self::Key) -> Option<Self::Value> {
-        self.sessions.get(key).map(|v| Rc::clone(v))
+        self.sessions.get(key).map(|v| v.clone())
     }
 
     fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value> {
