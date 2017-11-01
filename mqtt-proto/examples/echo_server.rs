@@ -105,7 +105,7 @@ fn main() {
         Arc::new(Mutex::new(authenticator))
     });
 
-    let server = TcpServer::new(mqtt::Proto::default(), cfg.addr);
+    let server = TcpServer::new(mqtt::MQTT::default(), cfg.addr);
 
     server.with_handle(move |handle| {
         Server::with_authenticator(

@@ -39,5 +39,5 @@ pub mod server;
 
 pub use codec::Codec;
 pub use message::{Message, MessageReceiver, MessageSender};
-pub use proto::Proto;
+pub use proto::MQTT;
 pub use topic::{Level, MatchTopic, Topic, TopicTree};

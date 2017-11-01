@@ -10,9 +10,9 @@ use core::Packet;
 
 /// MQTT protocol codec
 #[derive(Debug, Default)]
-pub struct Proto<'a>(PhantomData<&'a u8>);
+pub struct MQTT<'a>(PhantomData<&'a u8>);
 
-impl<'a, T: AsyncRead + AsyncWrite + 'static> ServerProto<T> for Proto<'a>
+impl<'a, T: AsyncRead + AsyncWrite + 'static> ServerProto<T> for MQTT<'a>
 where
     Self: 'static,
 {
@@ -26,7 +26,7 @@ where
     }
 }
 
-impl<'a, T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for Proto<'a>
+impl<'a, T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for MQTT<'a>
 where
     Self: 'static,
 {
