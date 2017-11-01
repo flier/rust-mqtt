@@ -29,12 +29,12 @@ where
     pub fn with_authenticator(
         handle: &Handle,
         sessions: Arc<Mutex<S>>,
-        authenticator: Arc<Mutex<A>>,
+        authenticator: Option<Arc<Mutex<A>>>,
     ) -> Self {
         Server {
             remote: handle.remote().clone(),
             sessions,
-            authenticator: Some(authenticator),
+            authenticator: authenticator,
         }
     }
 }
@@ -54,6 +54,9 @@ where
 
     /// Create and return a new service value.
     fn new_service(&self) -> io::Result<Self::Instance> {
-        Ok(Conn::new(self.sessions.clone(), self.authenticator.clone()))
+        Ok(Conn::new(
+            Arc::clone(&self.sessions),
+            self.authenticator.clone(),
+        ))
     }
 }

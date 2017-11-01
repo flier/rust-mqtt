@@ -10,6 +10,7 @@ extern crate tokio_proto;
 extern crate mqtt_proto as mqtt;
 
 use std::env;
+use std::iter::FromIterator;
 use std::net::SocketAddr;
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ use getopts::Options;
 
 use tokio_proto::TcpServer;
 
-use mqtt::server::{InMemorySessionProvider, Server};
+use mqtt::server::{InMemoryAuthenticator, InMemorySessionProvider, Server};
 
 error_chain!{
     links {
@@ -40,6 +41,16 @@ error_chain!{
 struct Config {
     addr: SocketAddr,
     users: Vec<(String, Option<Vec<u8>>)>,
+}
+
+impl Config {
+    fn authenticator(&self) -> Option<InMemoryAuthenticator> {
+        if self.users.is_empty() {
+            None
+        } else {
+            Some(InMemoryAuthenticator::from_iter(self.users.clone()))
+        }
+    }
 }
 
 fn parse_cmdline() -> Result<Config> {
@@ -89,10 +100,13 @@ fn main() {
     let cfg = parse_cmdline().expect("fail to parse command line");
 
     let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
+    let authenticator = cfg.authenticator().map(|authenticator| {
+        Arc::new(Mutex::new(authenticator))
+    });
 
     let server = TcpServer::new(mqtt::Proto::default(), cfg.addr);
 
     server.with_handle(move |handle| {
-        Arc::new(Server::new(handle, session_manager.clone()))
+        Server::with_authenticator(handle, Arc::clone(&session_manager), authenticator.clone())
     });
 }

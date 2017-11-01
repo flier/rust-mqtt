@@ -111,7 +111,7 @@ where
                 // TODO resume session
 
                 return Ok(Connected {
-                    session: session.clone(),
+                    session: Arc::clone(&session),
                     latest: Cell::new(Instant::now()),
                     resumed: true,
                 });
@@ -124,11 +124,30 @@ where
         }
 
         if let Some(ref auth_manager) = self.auth_manager {
-            if auth_manager
-                .lock()?
-                .authenticate(client_id.as_str().into(), username, password)
-                .is_err()
-            {
+            if let Some(username) = username {
+                match auth_manager.lock()?.authenticate(
+                    client_id.as_str(),
+                    username.as_ref(),
+                    password.map(|pass| pass.into_owned()).as_ref().map(
+                        |v| {
+                            v.as_slice()
+                        },
+                    ),
+                ) {
+                    Ok(_) => {
+                        info!("user `{}` login as client: {}", username, client_id);
+                    }
+                    Err(err) => {
+                        debug!("user `{}` login failed, {}", username, err);
+
+                        bail!(ErrorKind::ConnectFailed(
+                            ConnectReturnCode::BadUserNameOrPassword,
+                        ))
+                    }
+                }
+            } else {
+                debug!("missing username/password from client: {}", client_id);
+
                 bail!(ErrorKind::ConnectFailed(
                     ConnectReturnCode::BadUserNameOrPassword,
                 ))
@@ -143,7 +162,7 @@ where
 
         self.session_manager.lock()?.insert(
             client_id,
-            session.clone(),
+            Arc::clone(&session),
         );
 
         Ok(Connected {
@@ -157,7 +176,7 @@ where
 
 impl<'a> Connected<'a> {
     pub fn session(&self) -> Arc<Mutex<Session<'a>>> {
-        self.session.clone()
+        Arc::clone(&self.session)
     }
 
     pub fn is_resumed(&self) -> bool {

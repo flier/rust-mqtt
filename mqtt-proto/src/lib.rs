@@ -9,6 +9,7 @@ extern crate bytes;
 extern crate nom;
 extern crate slab;
 extern crate time;
+extern crate pwhash;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;

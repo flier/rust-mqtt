@@ -1,38 +1,61 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::error::Error as StdError;
+use std::iter::{FromIterator, IntoIterator};
 use std::result::Result as StdResult;
+use std::str;
+
+use pwhash::bcrypt;
 
 use errors::{Error, ErrorKind, Result};
 
 pub trait Authenticator: Clone {
     type Profile;
-    type Error;
+    type Error: StdError;
 
     fn authenticate<'a>(
         &mut self,
-        client_id: Cow<'a, str>,
-        username: Option<Cow<'a, str>>,
-        password: Option<Cow<'a, [u8]>>,
+        client_id: &'a str,
+        username: &'a str,
+        password: Option<&'a [u8]>,
     ) -> StdResult<Self::Profile, Self::Error>;
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryAuthenticator {
-    users: HashMap<String, Vec<u8>>,
+    users: HashMap<String, Option<String>>,
 }
 
-impl Deref for InMemoryAuthenticator {
-    type Target = HashMap<String, Vec<u8>>;
+impl InMemoryAuthenticator {
+    pub fn is_empty(&self) -> bool {
+        self.users.is_empty()
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.users
+    pub fn insert(
+        &mut self,
+        username: String,
+        password: Option<Vec<u8>>,
+    ) -> Result<Option<Option<String>>> {
+        let value = if let Some(password) = password {
+            Some(bcrypt::hash(
+                unsafe { str::from_utf8_unchecked(&password) },
+            )?)
+        } else {
+            None
+        };
+
+        Ok(self.users.insert(username, value))
     }
 }
 
-impl DerefMut for InMemoryAuthenticator {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.users
+impl FromIterator<(String, Option<Vec<u8>>)> for InMemoryAuthenticator {
+    fn from_iter<T: IntoIterator<Item = (String, Option<Vec<u8>>)>>(iter: T) -> Self {
+        let mut authenticator = InMemoryAuthenticator::default();
+
+        for (username, password) in iter {
+            authenticator.insert(username, password).unwrap();
+        }
+
+        authenticator
     }
 }
 
@@ -42,16 +65,24 @@ impl Authenticator for InMemoryAuthenticator {
 
     fn authenticate<'a>(
         &mut self,
-        _client_id: Cow<'a, str>,
-        username: Option<Cow<'a, str>>,
-        password: Option<Cow<'a, [u8]>>,
+        _client_id: &'a str,
+        username: &'a str,
+        password: Option<&'a [u8]>,
     ) -> Result<()> {
-        match username {
-            Some(ref u)
-                if self.users.get(u.as_ref()).map_or(false, |pass| {
-                    password.map_or(true, |p| pass.as_slice() == p.as_ref())
-                }) => Ok(()),
-            _ => bail!(ErrorKind::BadUserNameOrPassword),
+        if self.users.get(username).map_or(
+            false,
+            |hash| match (password, hash) {
+                (Some(pass), &Some(ref hash)) => {
+                    bcrypt::verify(unsafe { str::from_utf8_unchecked(pass) }, hash)
+                }
+                (_, &None) => true,
+                _ => false,
+            },
+        )
+        {
+            Ok(())
+        } else {
+            bail!(ErrorKind::BadUserNameOrPassword)
         }
     }
 }
@@ -64,9 +95,9 @@ impl Authenticator for MockAuthenticator {
 
     fn authenticate<'a>(
         &mut self,
-        _client_id: Cow<'a, str>,
-        _username: Option<Cow<'a, str>>,
-        _password: Option<Cow<'a, [u8]>>,
+        _client_id: &'a str,
+        _username: &'a str,
+        _password: Option<&'a [u8]>,
     ) -> Result<()> {
         Ok(())
     }
@@ -82,11 +113,12 @@ pub mod tests {
 
         assert!(auth.is_empty());
 
-        assert_matches!(auth.authenticate("client".into(), Some("user".into()), Some(Cow::from(&b"pass"[..]))),
+        assert_matches!(auth.authenticate("client", "user", Some(&b"pass"[..])),
                         Err(Error(ErrorKind::BadUserNameOrPassword, _)));
 
-        auth.insert("user".to_owned(), Vec::from(&b"pass"[..]));
+        assert_eq!(auth.insert("user".to_owned(), Some(Vec::from(&b"pass"[..])))
+            .unwrap(), None);
 
-        assert_matches!(auth.authenticate("client".into(), Some("user".into()), Some(Cow::from(&b"pass"[..]))), Ok(()));
+        assert_matches!(auth.authenticate("client", "user", Some(&b"pass"[..])), Ok(()));
     }
 }
