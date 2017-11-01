@@ -19,7 +19,7 @@ use getopts::Options;
 
 use tokio_proto::TcpServer;
 
-use mqtt::server::{InMemoryAuthenticator, InMemorySessionProvider, Server};
+use mqtt::server::{InMemoryAuthenticator, InMemorySessionProvider, InMemoryTopicProvider, Server};
 
 error_chain!{
     links {
@@ -99,7 +99,8 @@ fn main() {
 
     let cfg = parse_cmdline().expect("fail to parse command line");
 
-    let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
+    let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
+    let topic_provider = Arc::new(Mutex::new(InMemoryTopicProvider::default()));
     let authenticator = cfg.authenticator().map(|authenticator| {
         Arc::new(Mutex::new(authenticator))
     });
@@ -107,6 +108,11 @@ fn main() {
     let server = TcpServer::new(mqtt::Proto::default(), cfg.addr);
 
     server.with_handle(move |handle| {
-        Server::with_authenticator(handle, Arc::clone(&session_manager), authenticator.clone())
+        Server::with_authenticator(
+            handle,
+            Arc::clone(&session_provider),
+            Arc::clone(&topic_provider),
+            authenticator.clone(),
+        )
     });
 }

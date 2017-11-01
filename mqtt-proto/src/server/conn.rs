@@ -7,19 +7,20 @@ use tokio_service::Service;
 
 use core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
-use server::{Authenticator, Connected, Session, SessionProvider, State};
+use server::{Authenticator, Connected, Session, SessionProvider, State, TopicProvider};
 
 /// MQTT service
-pub struct Conn<'a, S, A> {
-    state: RefCell<State<'a, S, A>>,
+pub struct Conn<'a, S, T, A> {
+    state: RefCell<State<'a, S, T, A>>,
 }
 
-impl<'a, S, A> Conn<'a, S, A> {
+impl<'a, S, T, A> Conn<'a, S, T, A> {
     pub fn new(
-        session_manager: Arc<Mutex<S>>,
-        auth_manager: Option<Arc<Mutex<A>>>,
-    ) -> Conn<'a, S, A> {
-        Conn { state: RefCell::new(State::new(session_manager, auth_manager)) }
+        sessions: Arc<Mutex<S>>,
+        topics: Arc<Mutex<T>>,
+        authenticator: Option<Arc<Mutex<A>>>,
+    ) -> Conn<'a, S, T, A> {
+        Conn { state: RefCell::new(State::new(sessions, topics, authenticator)) }
     }
 
     pub fn connected(&self) -> Option<Connected<'a>> {
@@ -27,12 +28,13 @@ impl<'a, S, A> Conn<'a, S, A> {
     }
 }
 
-impl<'a, S, A> Service for Conn<'a, S, A>
+impl<'a, S, T, A> Service for Conn<'a, S, T, A>
 where
     S: SessionProvider<
         Key = String,
         Value = Arc<Mutex<Session<'a>>>,
     >,
+    T: TopicProvider,
     A: Authenticator,
 {
     type Request = Packet<'a>;
@@ -47,9 +49,10 @@ where
     }
 }
 
-impl<'a, S, A> Conn<'a, S, A>
+impl<'a, S, T, A> Conn<'a, S, T, A>
 where
     S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
+    T: TopicProvider,
     A: Authenticator,
 {
     fn handle<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
@@ -66,7 +69,7 @@ where
     fn handle_request<'b>(
         &self,
         request: Packet<'a>,
-    ) -> Result<(Option<Packet<'b>>, State<'a, S, A>)> {
+    ) -> Result<(Option<Packet<'b>>, State<'a, S, T, A>)> {
         match *self.state.borrow() {
             State::Connecting(ref connecting) => {
                 if let Packet::Connect {
@@ -269,16 +272,22 @@ pub mod tests {
 
     use super::*;
     use core::{LastWill, Protocol};
-    use server::{InMemorySessionProvider, MockAuthenticator};
+    use server::{InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator};
 
-    fn new_test_conn<'a>() -> Conn<'a, InMemorySessionProvider<'a>, MockAuthenticator> {
-        new_test_conn_with_session_manager(Arc::new(Mutex::new(InMemorySessionProvider::default())))
+    fn new_test_conn<'a>()
+        -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider, MockAuthenticator>
+    {
+        new_test_conn_with_provider(
+            Arc::new(Mutex::new(InMemorySessionProvider::default())),
+            Arc::new(Mutex::new(InMemoryTopicProvider::default())),
+        )
     }
 
-    fn new_test_conn_with_session_manager<'a, S>(
-        session_manager: Arc<Mutex<S>>,
-    ) -> Conn<'a, S, MockAuthenticator> {
-        Conn::new(session_manager, None)
+    fn new_test_conn_with_provider<'a, S, T>(
+        session_provider: Arc<Mutex<S>>,
+        topic_provider: Arc<Mutex<T>>,
+    ) -> Conn<'a, S, T, MockAuthenticator> {
+        Conn::new(session_provider, topic_provider, None)
     }
 
     lazy_static! {
@@ -404,8 +413,10 @@ pub mod tests {
 
     #[test]
     fn test_resume_session() {
-        let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-        let conn = new_test_conn_with_session_manager(Arc::clone(&session_manager));
+        let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
+        let topic_provider = Arc::new(Mutex::new(InMemoryTopicProvider::default()));
+        let conn =
+            new_test_conn_with_provider(Arc::clone(&session_provider), Arc::clone(&topic_provider));
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -419,7 +430,8 @@ pub mod tests {
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
-        let conn = new_test_conn_with_session_manager(Arc::clone(&session_manager));
+        let conn =
+            new_test_conn_with_provider(Arc::clone(&session_provider), Arc::clone(&topic_provider));
 
         // If the Server accepts a connection with CleanSession set to 0,
         // the value set in Session Present depends on whether the Server already has stored Session state
@@ -435,8 +447,10 @@ pub mod tests {
 
     #[test]
     fn test_clear_session() {
-        let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-        let conn = new_test_conn_with_session_manager(Arc::clone(&session_manager));
+        let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
+        let topic_provider = Arc::new(Mutex::new(InMemoryTopicProvider::default()));
+        let conn =
+            new_test_conn_with_provider(Arc::clone(&session_provider), Arc::clone(&topic_provider));
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -453,7 +467,7 @@ pub mod tests {
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
-        let conn = new_test_conn_with_session_manager(session_manager);
+        let conn = new_test_conn_with_provider(session_provider, Arc::clone(&topic_provider));
 
         assert_matches!(conn.call(Packet::Connect {
             protocol: Protocol::default(),

@@ -5,19 +5,20 @@ use std::time::{Duration, Instant};
 
 use core::{ClientId, ConnectReturnCode, LastWill, Protocol};
 use errors::{ErrorKind, Result};
-use server::{Authenticator, Session, SessionProvider};
+use server::{Authenticator, Session, SessionProvider, TopicProvider};
 
 #[derive(Clone, Debug)]
-pub enum State<'a, S, A> {
-    Connecting(Connecting<S, A>),
+pub enum State<'a, S, T, A> {
+    Connecting(Connecting<S, T, A>),
     Connected(Connected<'a>),
     Disconnected,
 }
 
 #[derive(Clone, Debug)]
-pub struct Connecting<S, A> {
-    session_manager: Arc<Mutex<S>>,
-    auth_manager: Option<Arc<Mutex<A>>>,
+pub struct Connecting<S, T, A> {
+    session_provider: Arc<Mutex<S>>,
+    topic_provider: Arc<Mutex<T>>,
+    authenticator: Option<Arc<Mutex<A>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -27,14 +28,16 @@ pub struct Connected<'a> {
     resumed: bool,
 }
 
-impl<'a, S, A> State<'a, S, A> {
+impl<'a, S, T, A> State<'a, S, T, A> {
     pub fn new(
-        session_manager: Arc<Mutex<S>>,
-        auth_manager: Option<Arc<Mutex<A>>>,
-    ) -> State<'a, S, A> {
+        session_provider: Arc<Mutex<S>>,
+        topic_provider: Arc<Mutex<T>>,
+        authenticator: Option<Arc<Mutex<A>>>,
+    ) -> State<'a, S, T, A> {
         State::Connecting(Connecting {
-            session_manager,
-            auth_manager,
+            session_provider,
+            topic_provider,
+            authenticator,
         })
     }
 
@@ -47,15 +50,16 @@ impl<'a, S, A> State<'a, S, A> {
     }
 }
 
-impl<'a, S, A> Default for State<'a, S, A> {
-    fn default() -> State<'a, S, A> {
+impl<'a, S, T, A> Default for State<'a, S, T, A> {
+    fn default() -> State<'a, S, T, A> {
         State::Disconnected
     }
 }
 
-impl<'a, S, A> Connecting<S, A>
+impl<'a, S,T, A> Connecting<S, T,A>
 where
     S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
+    T:TopicProvider,
     A: Authenticator,
 {
     pub fn connect(
@@ -94,7 +98,7 @@ where
             // If there is no Session associated with the Client identifier the Server MUST create a new Session.
             // The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
 
-            if let Some(session) = self.session_manager.lock()?.get(&client_id) {
+            if let Some(session) = self.session_provider.lock()?.get(&client_id) {
                 debug!("resume session with client_id #{}", client_id);
 
                 // If the ClientId represents a Client already connected to the Server
@@ -120,12 +124,12 @@ where
             // If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
             // This Session lasts as long as the Network Connection.
             // State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
-            self.session_manager.lock()?.remove(&client_id);
+            self.session_provider.lock()?.remove(&client_id);
         }
 
-        if let Some(ref auth_manager) = self.auth_manager {
+        if let Some(ref authenticator) = self.authenticator {
             if let Some(username) = username {
-                match auth_manager.lock()?.authenticate(
+                match authenticator.lock()?.authenticate(
                     client_id.as_str(),
                     username.as_ref(),
                     password.map(|pass| pass.into_owned()).as_ref().map(
@@ -160,7 +164,7 @@ where
             last_will.map(|last_will| last_will.into_owned()),
         )));
 
-        self.session_manager.lock()?.insert(
+        self.session_provider.lock()?.insert(
             client_id,
             Arc::clone(&session),
         );
@@ -187,7 +191,7 @@ impl<'a> Connected<'a> {
         self.latest.set(Instant::now())
     }
 
-    pub fn disconnect<S, A>(self) -> Result<State<'a, S, A>> {
+    pub fn disconnect<S, T, A>(self) -> Result<State<'a, S, T, A>> {
         // MUST discard any Will Message associated with the current connection without publishing it,
         // as described in Section 3.1.2.5 [MQTT-3.14.4-3].
 
