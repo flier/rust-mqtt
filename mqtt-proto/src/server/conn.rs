@@ -193,11 +193,11 @@ where
                             status: topic_filters
                                 .iter()
                                 .map(|&(ref filter, qos)| {
-                                    let session = session.clone();
+                                    let session = Arc::clone(&session);
                                     let lock = session.try_lock().map_err(|err| err.into());
 
                                     match lock.and_then(
-                                        move |mut session| session.subscribe(&filter, qos),
+                                        move |mut session| session.subscribe(filter, qos),
                                     ) {
                                         Ok(_) => {
                                             trace!(
@@ -405,7 +405,7 @@ pub mod tests {
     #[test]
     fn test_resume_session() {
         let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-        let conn = new_test_conn_with_session_manager(session_manager.clone());
+        let conn = new_test_conn_with_session_manager(Arc::clone(&session_manager));
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -419,7 +419,7 @@ pub mod tests {
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
-        let conn = new_test_conn_with_session_manager(session_manager.clone());
+        let conn = new_test_conn_with_session_manager(Arc::clone(&session_manager));
 
         // If the Server accepts a connection with CleanSession set to 0,
         // the value set in Session Present depends on whether the Server already has stored Session state
@@ -436,7 +436,7 @@ pub mod tests {
     #[test]
     fn test_clear_session() {
         let session_manager = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-        let conn = new_test_conn_with_session_manager(session_manager.clone());
+        let conn = new_test_conn_with_session_manager(Arc::clone(&session_manager));
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {

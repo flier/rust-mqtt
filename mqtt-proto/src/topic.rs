@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::convert::{AsRef, Into};
 use std::fmt::{self, Display, Formatter, Write};
 use std::io;
-use std::iter::{IntoIterator, Iterator};
+use std::iter::{FromIterator, IntoIterator, Iterator};
 use std::ops::{Deref, DerefMut, Div, DivAssign};
 use std::str::FromStr;
 
@@ -60,7 +60,7 @@ impl Level {
     pub fn value(&self) -> Option<&str> {
         match *self {
             Level::Normal(ref s) |
-            Level::Metadata(ref s) => Some(&s),
+            Level::Metadata(ref s) => Some(s),
             _ => None,
         }
     }
@@ -153,13 +153,13 @@ impl Deref for Topic {
     type Target = Vec<Level>;
 
     fn deref(&self) -> &Self::Target {
-        return &self.0;
+        &self.0
     }
 }
 
 impl DerefMut for Topic {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        return &mut self.0;
+        &mut self.0
     }
 }
 
@@ -189,7 +189,7 @@ impl MatchLevel for Level {
                     false
                 }
             }
-            Level::Blank => *self == *self,
+            Level::Blank => *self == *level,
             Level::SingleWildcard | Level::MultiWildcard => !self.is_metadata(),
         }
     }
@@ -239,7 +239,7 @@ pub trait MatchTopic {
 
 impl MatchTopic for Topic {
     fn match_topic(&self, topic: &Topic) -> bool {
-        match_topic!(topic, self.0.iter())
+        match_topic!(topic, &self.0)
     }
 }
 
@@ -279,7 +279,7 @@ impl FromStr for Topic {
         s.split('/')
             .map(|level| Level::from_str(level))
             .collect::<Result<Vec<_>>>()
-            .map(|levels| Topic(levels))
+            .map(Topic)
             .and_then(|topic| if topic.is_valid() {
                 Ok(topic)
             } else {
@@ -291,7 +291,7 @@ impl FromStr for Topic {
 impl Display for Level {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
-            Level::Normal(ref s) => f.write_str(s.as_str()),
+            Level::Normal(ref s) |
             Level::Metadata(ref s) => f.write_str(s.as_str()),
             Level::Blank => Ok(()),
             Level::SingleWildcard => f.write_char('+'),
@@ -304,7 +304,7 @@ impl Display for Topic {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut first = true;
 
-        for level in self.0.iter() {
+        for level in &self.0 {
             if first {
                 first = false;
             } else {
@@ -321,7 +321,7 @@ impl Display for Topic {
 pub trait WriteTopicExt: io::Write {
     fn write_level(&mut self, level: &Level) -> io::Result<usize> {
         match *level {
-            Level::Normal(ref s) => self.write(s.as_str().as_bytes()),
+            Level::Normal(ref s) |
             Level::Metadata(ref s) => self.write(s.as_str().as_bytes()),
             Level::Blank => Ok(0),
             Level::SingleWildcard => self.write(b"+"),
@@ -417,8 +417,8 @@ pub struct TopicTree {
     root: StateIdx,
 }
 
-impl TopicTree {
-    pub fn new() -> TopicTree {
+impl Default for TopicTree {
+    fn default() -> Self {
         let mut states = Slab::with_capacity(64);
         let root = states.insert(Default::default());
 
@@ -428,17 +428,21 @@ impl TopicTree {
             root: root,
         }
     }
+}
 
-    pub fn build<I: IntoIterator<Item = Topic>>(topics: I) -> TopicTree {
-        let mut tree = TopicTree::new();
+impl FromIterator<Topic> for TopicTree {
+    fn from_iter<T: IntoIterator<Item = Topic>>(iter: T) -> Self {
+        let mut tree = TopicTree::default();
 
-        for topic in topics {
+        for topic in iter {
             tree.add(&topic);
         }
 
         tree
     }
+}
 
+impl TopicTree {
     pub fn add(&mut self, topic: &Topic) {
         let mut cur_state = self.root;
         let topic_idx = self.topics
@@ -446,7 +450,7 @@ impl TopicTree {
             .position(|(_, t)| t == topic)
             .unwrap_or_else(|| self.topics.insert(topic.clone()));
 
-        for level in topic.0.iter() {
+        for level in &topic.0 {
             match *level {
                 Level::Normal(_) |
                 Level::Metadata(_) |
@@ -759,7 +763,7 @@ mod tests {
 
     #[test]
     fn test_topic_tree() {
-        let tree = TopicTree::build(vec![
+        let tree = TopicTree::from_iter(vec![
             topic!("sport/tennis/+"),
             topic!("sport/tennis/player1"),
             topic!("sport/tennis/player1/#"),

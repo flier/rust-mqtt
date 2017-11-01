@@ -78,7 +78,7 @@ impl<'a> SessionProvider for InMemorySessionProvider<'a> {
     type Value = Arc<Mutex<Session<'a>>>;
 
     fn get(&self, key: &Self::Key) -> Option<Self::Value> {
-        self.sessions.get(key).map(|v| v.clone())
+        self.sessions.get(key).cloned()
     }
 
     fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value> {
