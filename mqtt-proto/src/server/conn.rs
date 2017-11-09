@@ -7,7 +7,8 @@ use tokio_service::Service;
 
 use core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
-use server::{Authenticator, Connected, Session, SessionProvider, State, TopicProvider};
+use server::{Authenticator, Connected, Session, SessionProvider, ShutdownSignal, State,
+             TopicProvider};
 
 /// MQTT service
 pub struct Conn<'a, S, T, A> {
@@ -16,6 +17,7 @@ pub struct Conn<'a, S, T, A> {
 
 impl<'a, S, T, A> Conn<'a, S, T, A> {
     pub fn new(
+        shutdown: ShutdownSignal,
         sessions: Arc<Mutex<S>>,
         topics: Arc<Mutex<T>>,
         authenticator: Option<Arc<Mutex<A>>>,
@@ -272,7 +274,7 @@ pub mod tests {
 
     use super::*;
     use core::{LastWill, Protocol};
-    use server::{InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator};
+    use server::{InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator, shutdown};
 
     fn new_test_conn<'a>()
         -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider, MockAuthenticator>
@@ -287,7 +289,9 @@ pub mod tests {
         session_provider: Arc<Mutex<S>>,
         topic_provider: Arc<Mutex<T>>,
     ) -> Conn<'a, S, T, MockAuthenticator> {
-        Conn::new(session_provider, topic_provider, None)
+        let (shutdown_signal, _) = shutdown::signal();
+
+        Conn::new(shutdown_signal, session_provider, topic_provider, None)
     }
 
     lazy_static! {

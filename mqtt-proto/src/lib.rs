@@ -6,6 +6,7 @@ extern crate log;
 #[macro_use]
 extern crate error_chain;
 extern crate bytes;
+extern crate void;
 extern crate nom;
 extern crate slab;
 extern crate time;

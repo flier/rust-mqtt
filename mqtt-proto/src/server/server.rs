@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use tokio_core::reactor::{Handle, Remote};
 use tokio_service::{NewService, Service};
 
-use server::{Authenticator, Conn, MockAuthenticator, Session, SessionProvider, TopicProvider};
+use server::{Authenticator, Conn, MockAuthenticator, Session, SessionProvider, TopicProvider,
+             shutdown};
 
 pub struct Server<S, T, A> {
     remote: Remote,
@@ -58,7 +59,10 @@ where
 
     /// Create and return a new service value.
     fn new_service(&self) -> io::Result<Self::Instance> {
+        let (shutdown_signal, shutdown_future) = shutdown::signal();
+
         Ok(Conn::new(
+            shutdown_signal,
             Arc::clone(&self.session_provider),
             Arc::clone(&self.topic_provider),
             self.authenticator.clone(),
