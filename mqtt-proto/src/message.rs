@@ -10,7 +10,6 @@ use errors::{ErrorKind, Result};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<'a> {
-    packet_id: PacketId,
     topic: Cow<'a, str>,
     payload: Cow<'a, [u8]>,
     ts: i64,
@@ -51,7 +50,6 @@ impl<'a> MessageSender<'a> {
         let packet_id = entry.key() as PacketId + 1;
 
         entry.insert(SendState::Sending(Message {
-            packet_id,
             topic,
             payload,
             ts: now().to_timespec().sec,
@@ -68,7 +66,7 @@ impl<'a> MessageSender<'a> {
         }
 
         match self.messages.remove(key) {
-            SendState::Sending(Message { packet_id, .. }) => {
+            SendState::Sending(Message { .. }) => {
                 trace!("message #{} acked", packet_id);
 
                 Ok(packet_id)
@@ -81,7 +79,7 @@ impl<'a> MessageSender<'a> {
         let state = self.messages.get_mut(packet_id as usize - 1);
 
         match state {
-            Some(&mut SendState::Sending(Message { packet_id, .. })) => {
+            Some(&mut SendState::Sending(Message { .. })) => {
                 trace!("message #{} received", packet_id);
 
                 *state.unwrap() = SendState::Received(packet_id);
@@ -97,7 +95,7 @@ impl<'a> MessageSender<'a> {
         let key = packet_id as usize - 1;
 
         match self.messages.get(key) {
-            Some(&SendState::Received(packet_id)) => {
+            Some(&SendState::Received(id)) if id == packet_id => {
                 trace!("message #{} compileted", packet_id);
 
                 self.messages.remove(key);
@@ -146,7 +144,6 @@ impl<'a> MessageReceiver<'a> {
                     self.messages.insert(
                         packet_id,
                         Message {
-                            packet_id,
                             topic,
                             payload,
                             ts: now().to_timespec().sec,
@@ -189,13 +186,13 @@ pub mod tests {
         assert_eq!(bar, 2);
         assert_eq!(sender.len(), 2);
 
-        assert_matches!(sender[foo as usize-1], SendState::Sending(Message { packet_id: 1, .. }));
+        assert_matches!(sender[foo as usize-1], SendState::Sending(Message { .. }));
         assert_matches!(sender.on_publish_ack(foo), Ok(1));
         assert!(sender.get(foo as usize-1).is_none());
 
-        assert_matches!(sender[bar as usize-1], SendState::Sending(Message { packet_id: 2, .. }));
+        assert_matches!(sender[bar as usize-1], SendState::Sending(Message { .. }));
         assert_matches!(sender.on_publish_received(bar), Ok(2));
-        assert_matches!(sender[bar as usize-1], SendState::Received(2));
+        assert_matches!(sender[bar as usize-1], SendState::Received(_));
         assert_matches!(sender.on_publish_complete(bar), Ok(2));
         assert!(sender.get(bar as usize-1).is_none());
 
@@ -216,10 +213,10 @@ pub mod tests {
 
         assert_eq!(receiver.len(), 1);
         assert!(receiver.get(&123).is_none());
-        assert_matches!(receiver.get(&456), Some(&Message{packet_id:456, ..}));
+        assert_matches!(receiver.get(&456), Some(&Message{..}));
 
         assert_matches!(receiver.on_publish_release(123), Err(Error(ErrorKind::InvalidPacketId, _)));
-        assert_matches!(receiver.on_publish_release(456), Ok(Message{packet_id:456, ..}));
+        assert_matches!(receiver.on_publish_release(456), Ok(Message{..}));
 
         assert!(receiver.is_empty());
     }
