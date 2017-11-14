@@ -394,12 +394,12 @@ mod tests {
         assert_eq!(subscription.inner.lock().unwrap().nodes.len(), 6);
 
         subscribed.into_iter().for_each(|subscribed| {
-            subscription.unsubscribe(subscribed);
+            subscription.unsubscribe(subscribed).unwrap();
         });
 
         assert!(subscription.is_empty().unwrap());
 
-        subscription.purge();
+        subscription.purge().unwrap();
 
         assert!(subscription.is_empty().unwrap());
         assert_eq!(subscription.inner.lock().unwrap().nodes.len(), 1);
