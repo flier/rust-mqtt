@@ -17,7 +17,7 @@ pub enum State<'a, S, T, A> {
 #[derive(Clone, Debug)]
 pub struct Connecting<S, T, A> {
     session_provider: Arc<Mutex<S>>,
-    topic_provider: Arc<Mutex<T>>,
+    topic_provider: T,
     authenticator: Option<Arc<Mutex<A>>>,
 }
 
@@ -31,7 +31,7 @@ pub struct Connected<'a> {
 impl<'a, S, T, A> State<'a, S, T, A> {
     pub fn new(
         session_provider: Arc<Mutex<S>>,
-        topic_provider: Arc<Mutex<T>>,
+        topic_provider: T,
         authenticator: Option<Arc<Mutex<A>>>,
     ) -> State<'a, S, T, A> {
         State::Connecting(Connecting {
@@ -59,7 +59,7 @@ impl<'a, S, T, A> Default for State<'a, S, T, A> {
 impl<'a, S,T, A> Connecting<S, T,A>
 where
     S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
-    T:TopicProvider,
+    T: TopicProvider,
     A: Authenticator,
 {
     pub fn connect(
@@ -72,14 +72,14 @@ where
         username: Option<Cow<str>>,
         password: Option<Cow<[u8]>>,
     ) -> Result<Connected<'a>> {
-        // If the protocol name is incorrect the Server MAY disconnect the Client,
-        // or it MAY continue processing the CONNECT packet in accordance with some other specification.
-        // In the latter case, the Server MUST NOT continue to process the CONNECT packet
-        // in line with this specification [MQTT-3.1.2-1].
-        //
-        // The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01
-        // (unacceptable protocol level) and then disconnect the Client if the Protocol Level
-        // is not supported by the Server [MQTT-3.1.2-2].
+// If the protocol name is incorrect the Server MAY disconnect the Client,
+// or it MAY continue processing the CONNECT packet in accordance with some other specification.
+// In the latter case, the Server MUST NOT continue to process the CONNECT packet
+// in line with this specification [MQTT-3.1.2-1].
+//
+// The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01
+// (unacceptable protocol level) and then disconnect the Client if the Protocol Level
+// is not supported by the Server [MQTT-3.1.2-2].
         if protocol != Protocol::default() {
             bail!(ErrorKind::ConnectFailed(
                 ConnectReturnCode::UnacceptableProtocolVersion,
@@ -93,18 +93,18 @@ where
         }
 
         if !clean_session {
-            // If CleanSession is set to 0, the Server MUST resume communications with the Client based on state
-            // from the current Session (as identified by the Client identifier).
-            // If there is no Session associated with the Client identifier the Server MUST create a new Session.
-            // The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
+// If CleanSession is set to 0, the Server MUST resume communications with the Client based on state
+// from the current Session (as identified by the Client identifier).
+// If there is no Session associated with the Client identifier the Server MUST create a new Session.
+// The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
 
             if let Some(session) = self.session_provider.lock()?.get(&client_id) {
                 debug!("resume session with client_id #{}", client_id);
 
-                // If the ClientId represents a Client already connected to the Server
-                // then the Server MUST disconnect the existing Client [MQTT-3.1.4-2].
+// If the ClientId represents a Client already connected to the Server
+// then the Server MUST disconnect the existing Client [MQTT-3.1.4-2].
 
-                // TODO
+// TODO
                 {
                     let mut s = session.lock()?;
 
@@ -112,7 +112,7 @@ where
                     s.set_last_will(last_will);
                 }
 
-                // TODO resume session
+// TODO resume session
 
                 return Ok(Connected {
                     session: Arc::clone(&session),
@@ -121,9 +121,9 @@ where
                 });
             }
         } else {
-            // If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
-            // This Session lasts as long as the Network Connection.
-            // State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
+// If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
+// This Session lasts as long as the Network Connection.
+// State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
             self.session_provider.lock()?.remove(&client_id);
         }
 

@@ -10,16 +10,12 @@ use server::{Authenticator, Conn, MockAuthenticator, Session, SessionProvider, T
 pub struct Server<S, T, A> {
     remote: Remote,
     session_provider: Arc<Mutex<S>>,
-    topic_provider: Arc<Mutex<T>>,
+    topic_provider: T,
     authenticator: Option<Arc<Mutex<A>>>,
 }
 
 impl<S, T> Server<S, T, MockAuthenticator> {
-    pub fn new(
-        handle: &Handle,
-        session_provider: Arc<Mutex<S>>,
-        topic_provider: Arc<Mutex<T>>,
-    ) -> Self {
+    pub fn new(handle: &Handle, session_provider: Arc<Mutex<S>>, topic_provider: T) -> Self {
         Self::with_authenticator(handle, session_provider, topic_provider, None)
     }
 }
@@ -31,7 +27,7 @@ where
     pub fn with_authenticator(
         handle: &Handle,
         session_provider: Arc<Mutex<S>>,
-        topic_provider: Arc<Mutex<T>>,
+        topic_provider: T,
         authenticator: Option<Arc<Mutex<A>>>,
     ) -> Self {
         Server {
@@ -64,7 +60,7 @@ where
         Ok(Conn::new(
             shutdown_signal,
             Arc::clone(&self.session_provider),
-            Arc::clone(&self.topic_provider),
+            self.topic_provider.clone(),
             self.authenticator.clone(),
         ))
     }

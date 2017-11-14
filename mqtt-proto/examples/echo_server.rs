@@ -100,7 +100,7 @@ fn main() {
     let cfg = parse_cmdline().expect("fail to parse command line");
 
     let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-    let topic_provider = Arc::new(Mutex::new(InMemoryTopicProvider::default()));
+    let topic_provider = InMemoryTopicProvider::default();
     let authenticator = cfg.authenticator().map(|authenticator| {
         Arc::new(Mutex::new(authenticator))
     });
@@ -111,7 +111,7 @@ fn main() {
         Server::with_authenticator(
             handle,
             Arc::clone(&session_provider),
-            Arc::clone(&topic_provider),
+            topic_provider.clone(),
             authenticator.clone(),
         )
     });

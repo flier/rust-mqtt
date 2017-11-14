@@ -1,4 +1,4 @@
-use futures::unsync::mpsc::SendError;
+use futures::sync::mpsc::SendError;
 use std::io;
 use std::sync::{PoisonError, TryLockError};
 

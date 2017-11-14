@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,21 +12,21 @@ use server::{Authenticator, Connected, Session, SessionProvider, ShutdownSignal,
 
 /// MQTT service
 pub struct Conn<'a, S, T, A> {
-    state: RefCell<State<'a, S, T, A>>,
+    state: Cell<State<'a, S, T, A>>,
 }
 
 impl<'a, S, T, A> Conn<'a, S, T, A> {
     pub fn new(
         shutdown: ShutdownSignal,
         sessions: Arc<Mutex<S>>,
-        topics: Arc<Mutex<T>>,
+        topics: T,
         authenticator: Option<Arc<Mutex<A>>>,
     ) -> Conn<'a, S, T, A> {
-        Conn { state: RefCell::new(State::new(sessions, topics, authenticator)) }
+        Conn { state: Cell::new(State::new(sessions, topics, authenticator)) }
     }
 
     pub fn connected(&self) -> Option<Connected<'a>> {
-        self.state.borrow().connected()
+        unsafe { (*self.state.as_ptr()).connected() }
     }
 }
 
@@ -58,22 +58,8 @@ where
     A: Authenticator,
 {
     fn handle<'b>(&self, request: Packet<'a>) -> Result<Option<Packet<'b>>> {
-        let (next_state, result) = match self.handle_request(request) {
-            Ok((response, state)) => (state, Ok(response)),
-            Err(err) => (State::Disconnected, Err(err)),
-        };
-
-        *self.state.borrow_mut() = next_state;
-
-        result
-    }
-
-    fn handle_request<'b>(
-        &self,
-        request: Packet<'a>,
-    ) -> Result<(Option<Packet<'b>>, State<'a, S, T, A>)> {
-        match *self.state.borrow() {
-            State::Connecting(ref connecting) => {
+        let (response, next_state) = match self.state.take() {
+            State::Connecting(connecting) => {
                 if let Packet::Connect {
                     protocol,
                     clean_session,
@@ -96,18 +82,18 @@ where
                         Ok(connected) => {
                             trace!("client connected: {:?}", connected.session());
 
-                            Ok((
+                            (
                                 Some(Packet::ConnectAck {
                                     session_present: !clean_session && connected.is_resumed(),
                                     return_code: ConnectReturnCode::ConnectionAccepted,
                                 }),
                                 State::Connected(connected),
-                            ))
+                            )
                         }
                         Err(Error(kind, _)) => {
                             trace!("client connect failed, {:?}", kind);
 
-                            Ok((
+                            (
                                 Some(Packet::ConnectAck {
                                     session_present: false,
                                     return_code: match kind {
@@ -115,15 +101,15 @@ where
                                         _ => ConnectReturnCode::ServiceUnavailable,
                                     },
                                 }),
-                                State::Connecting(connecting.clone()),
-                            ))
+                                State::Connecting(connecting),
+                            )
                         }
                     }
                 } else {
                     bail!(ErrorKind::ProtocolViolation)
                 }
             }
-            State::Connected(ref connected) => {
+            State::Connected(connected) => {
                 let mut connected = connected.clone();
 
                 let response = match request {
@@ -258,10 +244,14 @@ where
                     _ => bail!(ErrorKind::ProtocolViolation),
                 };
 
-                Ok((response, State::Connected(connected)))
+                (response, State::Connected(connected))
             }
             State::Disconnected => bail!(ErrorKind::ProtocolViolation),
-        }
+        };
+
+        self.state.set(next_state);
+
+        Ok(response)
     }
 }
 
@@ -277,17 +267,17 @@ pub mod tests {
     use server::{InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator, shutdown};
 
     fn new_test_conn<'a>()
-        -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider, MockAuthenticator>
+        -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider<'a>, MockAuthenticator>
     {
         new_test_conn_with_provider(
             Arc::new(Mutex::new(InMemorySessionProvider::default())),
-            Arc::new(Mutex::new(InMemoryTopicProvider::default())),
+            InMemoryTopicProvider::default(),
         )
     }
 
     fn new_test_conn_with_provider<'a, S, T>(
         session_provider: Arc<Mutex<S>>,
-        topic_provider: Arc<Mutex<T>>,
+        topic_provider: T,
     ) -> Conn<'a, S, T, MockAuthenticator> {
         let (shutdown_signal, _) = shutdown::signal();
 
@@ -418,9 +408,9 @@ pub mod tests {
     #[test]
     fn test_resume_session() {
         let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-        let topic_provider = Arc::new(Mutex::new(InMemoryTopicProvider::default()));
+        let topic_provider = InMemoryTopicProvider::default();
         let conn =
-            new_test_conn_with_provider(Arc::clone(&session_provider), Arc::clone(&topic_provider));
+            new_test_conn_with_provider(Arc::clone(&session_provider), topic_provider.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -435,7 +425,7 @@ pub mod tests {
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
         let conn =
-            new_test_conn_with_provider(Arc::clone(&session_provider), Arc::clone(&topic_provider));
+            new_test_conn_with_provider(Arc::clone(&session_provider), topic_provider.clone());
 
         // If the Server accepts a connection with CleanSession set to 0,
         // the value set in Session Present depends on whether the Server already has stored Session state
@@ -452,9 +442,9 @@ pub mod tests {
     #[test]
     fn test_clear_session() {
         let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-        let topic_provider = Arc::new(Mutex::new(InMemoryTopicProvider::default()));
+        let topic_provider = InMemoryTopicProvider::default();
         let conn =
-            new_test_conn_with_provider(Arc::clone(&session_provider), Arc::clone(&topic_provider));
+            new_test_conn_with_provider(Arc::clone(&session_provider), topic_provider.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
         assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
@@ -471,7 +461,7 @@ pub mod tests {
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
 
-        let conn = new_test_conn_with_provider(session_provider, Arc::clone(&topic_provider));
+        let conn = new_test_conn_with_provider(session_provider, topic_provider.clone());
 
         assert_matches!(conn.call(Packet::Connect {
             protocol: Protocol::default(),
