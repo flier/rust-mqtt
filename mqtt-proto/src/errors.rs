@@ -1,3 +1,4 @@
+use futures::unsync::mpsc::SendError;
 use std::io;
 use std::sync::{PoisonError, TryLockError};
 
@@ -26,6 +27,7 @@ error_chain! {
             description("lock failed")
             display("lock failed, {}", reason)
         }
+        SendError
     }
 }
 
@@ -38,6 +40,12 @@ impl<T> From<PoisonError<T>> for Error {
 impl<T> From<TryLockError<T>> for Error {
     fn from(err: TryLockError<T>) -> Self {
         ErrorKind::LockError(err.to_string()).into()
+    }
+}
+
+impl<T> From<SendError<T>> for Error {
+    fn from(_: SendError<T>) -> Self {
+        ErrorKind::SendError.into()
     }
 }
 

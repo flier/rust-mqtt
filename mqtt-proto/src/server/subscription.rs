@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::vec;
 
 use slab::Slab;
 
-use futures::unsync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::{Poll, Sink, StartSend, Stream};
+use futures::unsync::mpsc::{SendError, UnboundedReceiver, UnboundedSender, unbounded};
 
-use errors::{Error, ErrorKind, Result};
+use errors::Result;
 use topic::{Filter, Level};
 
 type SubscriberIdx = usize;
@@ -16,6 +18,31 @@ pub struct Subscriber<T> {
     sender: UnboundedSender<T>,
 }
 
+impl<T> Subscriber<T> {
+    pub fn filter(&self) -> &Filter {
+        &self.filter
+    }
+
+    pub fn send(&self, msg: T) -> Result<()> {
+        self.sender.unbounded_send(msg)?;
+
+        Ok(())
+    }
+}
+
+impl<T> Sink for Subscriber<T> {
+    type SinkItem = T;
+    type SinkError = SendError<T>;
+
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.sender.start_send(item)
+    }
+
+    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        self.sender.poll_complete()
+    }
+}
+
 #[derive(Debug)]
 pub struct Subscribed<T> {
     node_idx: NodeIdx,
@@ -23,10 +50,26 @@ pub struct Subscribed<T> {
     receiver: UnboundedReceiver<T>,
 }
 
+impl<T> Drop for Subscribed<T> {
+    fn drop(&mut self) {
+        self.receiver.close()
+    }
+}
+
+impl<T> Stream for Subscribed<T> {
+    type Item = T;
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        self.receiver.poll()
+    }
+}
+
 #[derive(Debug, Default)]
 struct Node {
     next: HashMap<Level, NodeIdx>,
     subscribers: Vec<SubscriberIdx>,
+    single_wildcard: Option<NodeIdx>,
     multi_wildcard: Vec<SubscriberIdx>,
 }
 
@@ -60,16 +103,35 @@ impl<T> Subscription<T> {
         let mut cur_node_idx = self.root;
 
         for level in filter.levels() {
-            match *level {
+            cur_node_idx = match *level {
                 Level::Normal(_) |
                 Level::Metadata(_) |
-                Level::Blank |
-                Level::SingleWildcard => {
-                    cur_node_idx = self.nodes[cur_node_idx]
+                Level::Blank => {
+                    self.nodes[cur_node_idx]
                         .next
                         .get(level)
                         .cloned()
-                        .unwrap_or_else(|| self.nodes.insert(Default::default()))
+                        .unwrap_or_else(|| {
+                            let next_node_idx = self.nodes.insert(Default::default());
+
+                            self.nodes[cur_node_idx].next.insert(
+                                level.clone(),
+                                next_node_idx,
+                            );
+
+                            next_node_idx
+                        })
+                }
+                Level::SingleWildcard => {
+                    if let Some(next_node_idx) = self.nodes[cur_node_idx].single_wildcard {
+                        next_node_idx
+                    } else {
+                        let next_node_idx = self.nodes.insert(Default::default());
+
+                        self.nodes[cur_node_idx].single_wildcard = Some(next_node_idx);
+
+                        next_node_idx
+                    }
                 }
                 Level::MultiWildcard => {
                     self.nodes[cur_node_idx].multi_wildcard.push(subscriber_idx);
@@ -92,35 +154,137 @@ impl<T> Subscription<T> {
         }
     }
 
-    pub fn unsubscribe(&mut self, mut subscribed: Subscribed<T>) {
+    pub fn unsubscribe(&mut self, mut subscribed: Subscribed<T>) -> Subscriber<T> {
         if let Some(node) = self.nodes.get_mut(subscribed.node_idx) {
             node.subscribers.remove(subscribed.subscriber_idx);
             node.multi_wildcard.remove(subscribed.subscriber_idx);
         }
 
-        self.subscribers.remove(subscribed.subscriber_idx);
-
         subscribed.receiver.close();
+
+        self.subscribers.remove(subscribed.subscriber_idx)
     }
 
-    pub fn subscribers<S: AsRef<str>>(&self, topic: S) -> Result<Vec<&Subscriber<T>>> {
-        let filter: Filter = topic.as_ref().parse()?;
-        let mut subscribers = vec![];
-        let mut cur_node_idx = self.root;
+    pub fn topic_subscribers<S: AsRef<str>>(&self, topic: S) -> TopicSubscribers<T> {
+        let levels = match topic.as_ref().parse::<Filter>() {
+            Ok(filter) => filter.into(),
+            _ => Vec::new(),
+        };
 
-        for level in filter.levels() {}
+        TopicSubscribers {
+            subscription: self,
+            next_nodes: vec![(levels.into_iter(), self.root)],
+            subscribers: vec![],
+        }
+    }
 
-        Ok(subscribers)
+    pub fn is_empty(&self) -> bool {
+        self.is_node_empty(self.root)
+    }
+
+    fn is_node_empty(&self, node_idx: NodeIdx) -> bool {
+        let node = &self.nodes[node_idx];
+
+        node.subscribers.is_empty() &&
+            node.single_wildcard.map_or(
+                true,
+                |idx| self.is_node_empty(idx),
+            ) && node.multi_wildcard.is_empty() &&
+            node.next.iter().all(|(_, &idx)| self.is_node_empty(idx))
+    }
+
+    pub fn purge(&mut self) {
+        let root = self.root;
+
+        self.purge_node(root)
+    }
+
+    fn purge_node(&mut self, node_idx: NodeIdx) {
+        let nodes = self.nodes[node_idx]
+            .next
+            .iter()
+            .map(|(level, node_idx)| (level.clone(), *node_idx))
+            .collect::<Vec<(Level, NodeIdx)>>();
+
+        for (level, next_node_idx) in nodes {
+            self.purge_node(next_node_idx);
+
+            if self.is_node_empty(next_node_idx) {
+                self.nodes[node_idx].next.remove(&level);
+            }
+        }
+    }
+}
+
+pub struct TopicSubscribers<'a, T: 'a> {
+    subscription: &'a Subscription<T>,
+    next_nodes: Vec<(vec::IntoIter<Level>, NodeIdx)>,
+    subscribers: Vec<SubscriberIdx>,
+}
+
+impl<'a, T: 'a> Iterator for TopicSubscribers<'a, T> {
+    type Item = &'a Subscriber<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.subscribers
+            .pop()
+            .or_else(|| {
+                while let Some((mut levels, next_node_idx)) = self.next_nodes.pop() {
+                    let node = &self.subscription.nodes[next_node_idx];
+
+                    if let Some(level) = levels.next() {
+                        match node.single_wildcard {
+                            Some(next_node_idx) if !level.is_metadata() => {
+                                self.next_nodes.push((levels.clone(), next_node_idx))
+                            }
+                            _ => {}
+                        }
+
+                        match level {
+                            Level::Normal(_) |
+                            Level::Metadata(_) |
+                            Level::Blank => {
+                                if let Some(&next_node_idx) = node.next.get(&level) {
+                                    self.next_nodes.push((levels, next_node_idx))
+                                }
+                            }
+                            _ => break,
+                        }
+
+                        if !level.is_metadata() {
+                            self.subscribers.extend(node.multi_wildcard.iter());
+
+                            if !self.subscribers.is_empty() {
+                                break;
+                            }
+                        }
+                    } else {
+                        self.subscribers.extend(node.subscribers.iter());
+                        self.subscribers.extend(node.multi_wildcard.iter());
+
+                        break;
+                    }
+                }
+
+                self.subscribers.pop()
+            })
+            .map(|subscriber_idx| {
+                &self.subscription.subscribers[subscriber_idx]
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
+
     use super::*;
 
     #[test]
     fn test_subscription() {
         let mut subscription = Subscription::default();
+
+        assert!(subscription.is_empty());
 
         let filters = vec![
             topic_filter!("sport/tennis/+"),
@@ -143,94 +307,95 @@ mod tests {
             .collect::<Vec<Subscribed<()>>>();
 
         assert_eq!(filters.len(), subscribed.len());
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("sport/tennis/player1")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![
+                &topic_filter!("sport/tennis/player1"),
+                &topic_filter!("sport/tennis/player1/#"),
+                &topic_filter!("sport/tennis/+"),
+                &topic_filter!("sport/#"),
+                &topic_filter!("#"),
+            ]
+        );
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("sport/tennis/player1/ranking")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![
+                &topic_filter!("sport/tennis/player1/#"),
+                &topic_filter!("sport/#"),
+                &topic_filter!("#"),
+            ]
+        );
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("sport/tennis/player1/score/wimbledo")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![
+                &topic_filter!("sport/tennis/player1/#"),
+                &topic_filter!("sport/#"),
+                &topic_filter!("#"),
+            ]
+        );
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("sport")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![
+                &topic_filter!("sport/#"),
+                &topic_filter!("+"),
+                &topic_filter!("#"),
+            ]
+        );
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("sport/")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![
+                &topic_filter!("sport/+"),
+                &topic_filter!("sport/#"),
+                &topic_filter!("+/+"),
+                &topic_filter!("#"),
+            ]
+        );
+        assert_eq!(
+            subscription
+                .topic_subscribers("/finance")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![
+                &topic_filter!("/+"),
+                &topic_filter!("+/+"),
+                &topic_filter!("#"),
+            ]
+        );
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("$SYS/monitor/Clients")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![&topic_filter!("$SYS/monitor/+"), &topic_filter!("$SYS/#")]
+        );
+
+        assert_eq!(
+            subscription
+                .topic_subscribers("/monitor/Clients")
+                .map(|sub| &sub.filter)
+                .sorted(),
+            vec![&topic_filter!("+/monitor/Clients"), &topic_filter!("#")]
+        );
     }
-
-
-    // #[test]
-    // fn test_topic_tree() {
-    //     let subscription = Tree::from_iter(vec![
-    //         topic_filter!("sport/tennis/+"),
-    //         topic_filter!("sport/tennis/player1"),
-    //         topic_filter!("sport/tennis/player1/#"),
-    //         topic_filter!("sport/#"),
-    //         topic_filter!("sport/+"),
-    //         topic_filter!("#"),
-    //         topic_filter!("+"),
-    //         topic_filter!("+/+"),
-    //         topic_filter!("/+"),
-    //         topic_filter!("$SYS/#"),
-    //         topic_filter!("$SYS/monitor/+"),
-    //         topic_filter!("+/monitor/Clients"),
-    //     ]);
-
-    //     assert_eq!(subscription.filters.len(), 12);
-    //     assert_eq!(subscription.nodes.len(), 15);
-
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("sport/tennis/player1")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("sport/#"),
-    //             &topic_filter!("sport/tennis/player1/#"),
-    //             &topic_filter!("sport/tennis/player1"),
-    //             &topic_filter!("sport/tennis/+"),
-    //         ])
-    //     );
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("sport/tennis/player1/ranking")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("sport/#"),
-    //             &topic_filter!("sport/tennis/player1/#"),
-    //         ])
-    //     );
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("sport/tennis/player1/score/wimbledo")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("sport/#"),
-    //             &topic_filter!("sport/tennis/player1/#"),
-    //         ])
-    //     );
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("sport")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("sport/#"),
-    //             &topic_filter!("+"),
-    //         ])
-    //     );
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("sport/")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("sport/#"),
-    //             &topic_filter!("sport/+"),
-    //             &topic_filter!("+/+"),
-    //         ])
-    //     );
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("/finance")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("/+"),
-    //             &topic_filter!("+/+"),
-    //         ])
-    //     );
-
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("$SYS/monitor/Clients")),
-    //         Some(vec![
-    //             &topic_filter!("$SYS/#"),
-    //             &topic_filter!("$SYS/monitor/+"),
-    //         ])
-    //     );
-    //     assert_eq!(
-    //         subscription.match_topic(&topic_filter!("/monitor/Clients")),
-    //         Some(vec![
-    //             &topic_filter!("#"),
-    //             &topic_filter!("+/monitor/Clients"),
-    //         ])
-    //     );
-    // }
 }

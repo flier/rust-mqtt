@@ -5,15 +5,13 @@ use std::iter::Iterator;
 use std::ops::{Deref, DerefMut, Div, DivAssign};
 use std::str::FromStr;
 
-use slab::Slab;
-
 use errors::{Error, ErrorKind, Result};
 
 fn is_metadata<T: AsRef<str>>(s: T) -> bool {
     s.as_ref().chars().nth(0) == Some('$')
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Hash)]
 pub enum Level {
     Normal(String),
     Metadata(String), // $SYS
@@ -111,7 +109,7 @@ macro_rules! metadata {
     ($level:expr) => ($crate::Level::metadata($level).unwrap())
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Default, Hash)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Default, Hash)]
 pub struct Filter(Vec<Level>);
 
 unsafe impl Send for Filter {}
@@ -417,8 +415,6 @@ impl DivAssign<Filter> for Filter {
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
-
     use super::*;
 
     #[test]
