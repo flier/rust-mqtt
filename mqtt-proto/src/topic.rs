@@ -138,29 +138,25 @@ impl Filter {
 }
 
 impl<'a> From<&'a [Level]> for Filter {
-    fn from(s: &[Level]) -> Self {
-        let mut v = vec![];
-
-        v.extend_from_slice(s);
-
-        Filter(v)
+    fn from(levels: &[Level]) -> Self {
+        Filter(levels.to_vec())
     }
 }
 
 impl From<Vec<Level>> for Filter {
-    fn from(v: Vec<Level>) -> Self {
-        Filter(v)
+    fn from(levels: Vec<Level>) -> Self {
+        Filter(levels)
     }
 }
 
-impl Into<Vec<Level>> for Filter {
-    fn into(self) -> Vec<Level> {
-        self.0
+impl From<Filter> for Vec<Level> {
+    fn from(filter: Filter) -> Self {
+        filter.0
     }
 }
 
 impl Deref for Filter {
-    type Target = Vec<Level>;
+    type Target = [Level];
 
     fn deref(&self) -> &Self::Target {
         &self.0

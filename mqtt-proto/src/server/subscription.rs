@@ -94,7 +94,8 @@ impl<T> Default for Subscription<T> {
 }
 
 impl<T> Subscription<T> {
-    pub fn subscribe(&mut self, filter: &Filter) -> Subscribed<T> {
+    pub fn subscribe<F: Into<Filter>>(&mut self, filter: F) -> Subscribed<T> {
+        let filter = filter.into();
         let (sender, receiver) = unbounded();
         let subscriber_idx = self.subscribers.insert(Subscriber {
             filter: filter.clone(),
@@ -156,8 +157,19 @@ impl<T> Subscription<T> {
 
     pub fn unsubscribe(&mut self, mut subscribed: Subscribed<T>) -> Subscriber<T> {
         if let Some(node) = self.nodes.get_mut(subscribed.node_idx) {
-            node.subscribers.remove(subscribed.subscriber_idx);
-            node.multi_wildcard.remove(subscribed.subscriber_idx);
+            if let Some(index) = node.subscribers.iter().position(|&subscriber_idx| {
+                subscriber_idx == subscribed.subscriber_idx
+            })
+            {
+                node.subscribers.remove(index);
+            }
+
+            if let Some(index) = node.multi_wildcard.iter().position(|&subscriber_idx| {
+                subscriber_idx == subscribed.subscriber_idx
+            })
+            {
+                node.multi_wildcard.remove(index);
+            }
         }
 
         subscribed.receiver.close();
@@ -211,6 +223,16 @@ impl<T> Subscription<T> {
 
             if self.is_node_empty(next_node_idx) {
                 self.nodes[node_idx].next.remove(&level);
+                self.nodes.remove(next_node_idx);
+            }
+        }
+
+        if let Some(next_node_idx) = self.nodes[node_idx].single_wildcard {
+            self.purge_node(next_node_idx);
+
+            if self.is_node_empty(next_node_idx) {
+                self.nodes[node_idx].single_wildcard = None;
+                self.nodes.remove(next_node_idx);
             }
         }
     }
@@ -281,7 +303,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_subscription() {
+    fn test_subscribe() {
+        let mut subscription = Subscription::<()>::default();
+
+        assert!(subscription.is_empty());
+
+        assert_matches!(
+            subscription.subscribe(topic_filter!("sport/tennis/+")),
+            Subscribed{
+                node_idx: 3,
+                subscriber_idx: 0,
+                ..
+            }
+        );
+        assert_matches!(
+            subscription.subscribe(topic_filter!("sport/tennis/player1/#")),
+            Subscribed{
+                node_idx: 4,
+                subscriber_idx: 1,
+                ..
+            }
+        );
+        assert_matches!(
+            subscription.subscribe(topic_filter!("sport/+")),
+            Subscribed{
+                node_idx: 5,
+                subscriber_idx: 2,
+                ..
+            }
+        );
+        assert_matches!(
+            subscription.subscribe(topic_filter!("#")),
+            Subscribed{
+                node_idx: 0,
+                subscriber_idx: 3,
+                ..
+            }
+        );
+    }
+
+    #[test]
+    fn test_unsubscribe() {
+        let mut subscription = Subscription::default();
+
+        assert!(subscription.is_empty());
+
+        let filters = vec![
+            topic_filter!("sport/tennis/+"),
+            topic_filter!("sport/tennis/player1"),
+            topic_filter!("sport/tennis/player1/#"),
+            topic_filter!("sport/#"),
+            topic_filter!("sport/+"),
+            topic_filter!("#")
+        ];
+
+        let subscribed = filters
+            .into_iter()
+            .map(|filter| subscription.subscribe(filter))
+            .collect::<Vec<Subscribed<()>>>();
+
+        assert_eq!(subscription.nodes.len(), 6);
+
+        subscribed.into_iter().for_each(|subscribed| {
+            subscription.unsubscribe(subscribed);
+        });
+
+        assert!(subscription.is_empty());
+
+        subscription.purge();
+
+        assert!(subscription.is_empty());
+        assert_eq!(subscription.nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_topic_subscribers() {
         let mut subscription = Subscription::default();
 
         assert!(subscription.is_empty());
@@ -301,12 +397,14 @@ mod tests {
             topic_filter!("+/monitor/Clients"),
         ];
 
+        let filters_count = filters.len();
+
         let subscribed = filters
-            .iter()
+            .into_iter()
             .map(|filter| subscription.subscribe(filter))
             .collect::<Vec<Subscribed<()>>>();
 
-        assert_eq!(filters.len(), subscribed.len());
+        assert_eq!(filters_count, subscribed.len());
 
         assert_eq!(
             subscription
