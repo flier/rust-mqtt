@@ -35,7 +35,7 @@ where
             remote: handle.remote().clone(),
             session_provider,
             topic_provider,
-            authenticator: authenticator,
+            authenticator,
         }
     }
 }

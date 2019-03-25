@@ -54,7 +54,7 @@ pub struct Session<'a, H: 'a + Handler> {
 impl<'a, H: Handler> Session<'a, H> {
     pub fn new(handler: &'a mut H) -> Self {
         Session {
-            handler: handler,
+            handler,
             waiting_reply: Slab::with_capacity(256),
         }
     }
@@ -73,11 +73,11 @@ impl<'a, H: Handler> Session<'a, H> {
     ) -> Packet<'a> {
         Packet::Connect {
             protocol: Default::default(),
-            clean_session: clean_session,
-            keep_alive: keep_alive,
+            clean_session,
+            keep_alive,
             last_will: last_will.map(|msg| LastWill {
-                topic: msg.topic.clone().into(),
-                message: msg.payload.clone().into(),
+                topic: msg.topic.clone(),
+                message: msg.payload.clone(),
                 qos: msg.qos,
                 retain: false,
             }),
@@ -95,18 +95,16 @@ impl<'a, H: Handler> Session<'a, H> {
                     dup: false,
                     retain: false,
                     qos: msg.qos,
-                    topic: msg.topic.clone().into(),
+                    topic: msg.topic.clone(),
                     packet_id: Some(packet_id),
-                    payload: msg.payload.clone().into(),
+                    payload: msg.payload.clone(),
                 },
-                Waiting::PublishComplete { packet_id } => Packet::PublishRelease {
-                    packet_id: packet_id,
-                },
+                Waiting::PublishComplete { packet_id } => Packet::PublishRelease { packet_id },
                 Waiting::SubscribeAck {
                     packet_id,
                     ref topic_filters,
                 } => Packet::Subscribe {
-                    packet_id: packet_id,
+                    packet_id,
                     topic_filters: topic_filters
                         .iter()
                         .map(|&(filter, qos)| (filter.into(), qos))
@@ -116,7 +114,7 @@ impl<'a, H: Handler> Session<'a, H> {
                     packet_id,
                     ref topic_filters,
                 } => Packet::Unsubscribe {
-                    packet_id: packet_id,
+                    packet_id,
                     topic_filters: topic_filters.iter().map(|&filter| filter.into()).collect(),
                 },
             })
@@ -136,12 +134,12 @@ impl<'a, H: Handler> Session<'a, H> {
             dup: false,
             retain: false,
             qos: msg.qos,
-            topic: msg.topic.clone().into(),
+            topic: msg.topic.clone(),
             packet_id: match msg.qos {
                 QoS::AtLeastOnce | QoS::ExactlyOnce => Some(self.wait_reply(msg.clone())),
                 _ => None,
             },
-            payload: msg.payload.clone().into(),
+            payload: msg.payload.clone(),
         }
     }
 
@@ -150,7 +148,7 @@ impl<'a, H: Handler> Session<'a, H> {
         let packet_id = entry.key() as PacketId;
 
         entry.insert(Waiting::PublishAck {
-            packet_id: packet_id,
+            packet_id,
             msg: msg.clone(),
         });
 
@@ -173,13 +171,9 @@ impl<'a, H: Handler> Session<'a, H> {
         if let Some(entry) = self.waiting_reply.get_mut(packet_id as usize) {
             debug!("message {} received at server side", packet_id);
 
-            *entry = Waiting::PublishComplete {
-                packet_id: packet_id,
-            };
+            *entry = Waiting::PublishComplete { packet_id };
 
-            Some(Packet::PublishRelease {
-                packet_id: packet_id,
-            })
+            Some(Packet::PublishRelease { packet_id })
         } else {
             warn!("unexpected packet id {}", packet_id);
 
@@ -213,20 +207,14 @@ impl<'a, H: Handler> Session<'a, H> {
 
     fn send_reply(&mut self, packet_id: PacketId, msg: Rc<Message<'a>>) -> Option<Packet<'a>> {
         match msg.qos {
-            QoS::AtLeastOnce => Some(Packet::PublishAck {
-                packet_id: packet_id,
-            }),
-            QoS::ExactlyOnce => Some(Packet::PublishReceived {
-                packet_id: packet_id,
-            }),
+            QoS::AtLeastOnce => Some(Packet::PublishAck { packet_id }),
+            QoS::ExactlyOnce => Some(Packet::PublishReceived { packet_id }),
             _ => None,
         }
     }
 
     fn on_publish_release(&mut self, packet_id: PacketId) -> Option<Packet<'a>> {
-        Some(Packet::PublishComplete {
-            packet_id: packet_id,
-        })
+        Some(Packet::PublishComplete { packet_id })
     }
 
     pub fn subscribe(&mut self, topic_filters: &'a [(&'a str, QoS)]) -> Packet<'a> {
@@ -234,12 +222,12 @@ impl<'a, H: Handler> Session<'a, H> {
         let packet_id = entry.key() as PacketId;
 
         entry.insert(Waiting::SubscribeAck {
-            packet_id: packet_id,
-            topic_filters: topic_filters,
+            packet_id,
+            topic_filters,
         });
 
         Packet::Subscribe {
-            packet_id: packet_id,
+            packet_id,
             topic_filters: topic_filters
                 .iter()
                 .map(|&(filter, qos)| (filter.into(), qos))
@@ -256,7 +244,7 @@ impl<'a, H: Handler> Session<'a, H> {
             let status = topic_filters
                 .iter()
                 .map(|&(topic, _)| topic)
-                .zip(status.iter().map(|code| *code))
+                .zip(status.iter().cloned())
                 .collect::<Vec<(&str, SubscribeReturnCode)>>();
 
             self.handler.on_subscribed_topic(status.as_slice());
@@ -270,12 +258,12 @@ impl<'a, H: Handler> Session<'a, H> {
         let packet_id = entry.key() as PacketId;
 
         entry.insert(Waiting::UnsubscribeAck {
-            packet_id: packet_id,
-            topic_filters: topic_filters,
+            packet_id,
+            topic_filters,
         });
 
         Packet::Unsubscribe {
-            packet_id: packet_id,
+            packet_id,
             topic_filters: topic_filters.iter().map(|&filter| filter.into()).collect(),
         }
     }
@@ -360,7 +348,7 @@ impl<'a, T: Transport, H: 'a + Handler> transport::Handler<'a> for Client<'a, T,
                         Rc::new(Message {
                             topic: topic.clone(),
                             payload: payload.clone(),
-                            qos: qos,
+                            qos,
                         }),
                     )
                     .and_then(|packet| self.transport.send_packet(&packet).ok());
@@ -426,7 +414,7 @@ impl Builder {
         handler: &'a mut H,
     ) -> Client<'a, T, H> {
         Client {
-            transport: transport,
+            transport,
             session: Session::new(handler),
             client_id: self.client_id,
             keep_alive: self.keep_alive,

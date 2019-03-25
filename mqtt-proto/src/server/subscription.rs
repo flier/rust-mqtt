@@ -94,8 +94,8 @@ impl<T> Default for Subscription<T> {
         Subscription {
             inner: Arc::new(Mutex::new(Inner {
                 subscribers: Slab::with_capacity(64),
-                nodes: nodes,
-                root: root,
+                nodes,
+                root,
             })),
         }
     }
@@ -136,7 +136,9 @@ impl<T> Subscription<T> {
 
         let root = inner.root;
 
-        Ok(inner.purge_node(root))
+        inner.purge_node(root);
+
+        Ok(())
     }
 }
 

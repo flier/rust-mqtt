@@ -367,8 +367,8 @@ impl Machine for Tcp {
                         m.register(scope)?;
                         Ok(m)
                     })
-                    .map(|m| Response::ok(m))
-                    .unwrap_or(Response::done()),
+                    .map(Response::ok)
+                    .unwrap_or_else(|_| Response::done()),
 
                 State::Sending(..) if events.is_writable() => state
                     .async_write(&mut sock)
@@ -377,8 +377,8 @@ impl Machine for Tcp {
                         m.register(scope)?;
                         Ok(m)
                     })
-                    .map(|m| Response::ok(m))
-                    .unwrap_or(Response::done()),
+                    .map(Response::ok)
+                    .unwrap_or_else(|_| Response::done()),
 
                 _ => {
                     error!("invalid state when ready");
