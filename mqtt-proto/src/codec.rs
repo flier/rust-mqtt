@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use bytes::BytesMut;
 use nom::Err;
 
-use tokio_io::codec::{Decoder, Encoder};
+use tokio_codec::{Decoder, Encoder};
 use tokio_proto::multiplex::RequestId;
 
 use crate::core::{decode_variable_length_usize, Packet, ReadPacketExt, WritePacketExt};

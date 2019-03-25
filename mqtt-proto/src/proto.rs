@@ -1,7 +1,7 @@
 use std::io;
 use std::marker::PhantomData;
 
-use tokio_io::codec::Framed;
+use tokio_codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::multiplex::{ClientProto, ServerProto};
 
@@ -22,7 +22,7 @@ where
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(Codec::default()))
+        Ok(Framed::new(io, Codec::default()))
     }
 }
 
@@ -36,6 +36,6 @@ where
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        Ok(io.framed(Codec::default()))
+        Ok(Framed::new(io, Codec::default()))
     }
 }
