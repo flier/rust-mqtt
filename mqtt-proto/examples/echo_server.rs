@@ -1,11 +1,5 @@
 #[macro_use]
-extern crate log;
-extern crate pretty_env_logger;
-#[macro_use]
 extern crate error_chain;
-extern crate getopts;
-
-extern crate tokio_proto;
 
 extern crate mqtt_proto as mqtt;
 

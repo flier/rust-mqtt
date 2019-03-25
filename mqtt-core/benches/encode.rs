@@ -3,8 +3,6 @@ extern crate criterion;
 
 use criterion::Criterion;
 
-extern crate mqtt_core;
-
 use mqtt_core::*;
 
 fn bench_encode_connect_packets(c: &mut Criterion) {

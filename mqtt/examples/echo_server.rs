@@ -2,18 +2,8 @@
 
 #[macro_use]
 extern crate log;
-extern crate pretty_env_logger;
-
 #[macro_use]
 extern crate error_chain;
-
-extern crate bytes;
-extern crate clap;
-extern crate mio;
-extern crate nom;
-extern crate slab;
-
-extern crate mqtt;
 
 use std::io::prelude::*;
 use std::mem;
