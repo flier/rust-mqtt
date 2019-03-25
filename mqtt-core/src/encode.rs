@@ -2,8 +2,8 @@ use std::io::{self, Error, ErrorKind, Result};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
-use packet::*;
-use proto::*;
+use crate::packet::*;
+use crate::proto::*;
 
 pub const MAX_VARIABLE_LENGTH: usize = 0x0fff_ffff; // 0xFF,0xFF,0xFF,0x7F
 
@@ -326,7 +326,7 @@ mod tests {
     use std::borrow::Cow;
 
     use super::*;
-    use decode::*;
+    use crate::decode::*;
 
     #[test]
     fn test_encode_variable_length() {

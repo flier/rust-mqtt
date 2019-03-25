@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use core::{LastWill, QoS};
-use errors::Result;
-use message::{MessageReceiver, MessageSender};
+use crate::core::{LastWill, QoS};
+use crate::errors::Result;
+use crate::message::{MessageReceiver, MessageSender};
 
 #[derive(Debug)]
 pub struct Session<'a> {

@@ -5,9 +5,9 @@ use std::time::Duration;
 use futures::{Future, IntoFuture};
 use tokio_service::Service;
 
-use core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
-use errors::{Error, ErrorKind, Result};
-use server::{
+use crate::core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
+use crate::errors::{Error, ErrorKind, Result};
+use crate::server::{
     Authenticator, Connected, Session, SessionProvider, ShutdownSignal, State, TopicProvider,
 };
 
@@ -263,8 +263,10 @@ pub mod tests {
     use tokio_service::Service;
 
     use super::*;
-    use core::{LastWill, Protocol};
-    use server::{shutdown, InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator};
+    use crate::core::{LastWill, Protocol};
+    use crate::server::{
+        shutdown, InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator,
+    };
 
     fn new_test_conn<'a>(
     ) -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider<'a>, MockAuthenticator> {

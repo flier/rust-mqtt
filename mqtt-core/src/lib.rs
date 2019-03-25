@@ -4,9 +4,6 @@ extern crate log;
 extern crate bitflags;
 #[macro_use]
 extern crate nom;
-extern crate byteorder;
-extern crate rand;
-extern crate serde;
 
 #[cfg(test)]
 #[macro_use]

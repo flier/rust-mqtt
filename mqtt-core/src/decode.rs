@@ -3,8 +3,8 @@ use std::str;
 
 use nom::{be_u16, be_u8, Context, Err, ErrorKind, IResult, Needed};
 
-use packet::*;
-use proto::*;
+use crate::packet::*;
+use crate::proto::*;
 
 const QOS_MASK: u8 = 0x03;
 

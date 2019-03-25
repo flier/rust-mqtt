@@ -12,8 +12,8 @@ use rotor::mio::tcp::{TcpListener, TcpStream};
 use rotor::{EarlyScope, GenericScope, Machine, Response, Scope};
 use rotor::{EventSet, PollOpt, Void};
 
-use core::*;
-use error::*;
+use crate::core::*;
+use crate::error::*;
 
 pub trait Handler<'a> {
     fn on_received_packet(&mut self, packet: &Packet<'a>);

@@ -2,10 +2,9 @@ use std::fmt::{self, Display, Formatter};
 use std::iter;
 use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
-
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use serde::{Deserialize, Serialize};
 
 #[doc(hidden)]
 #[macro_export]

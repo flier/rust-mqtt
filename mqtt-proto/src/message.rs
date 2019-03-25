@@ -5,8 +5,8 @@ use time::now;
 
 use slab::Slab;
 
-use core::{PacketId, QoS};
-use errors::{ErrorKind, Result};
+use crate::core::{PacketId, QoS};
+use crate::errors::{ErrorKind, Result};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<'a> {
@@ -169,7 +169,7 @@ impl<'a> MessageReceiver<'a> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use errors::Error;
+    use crate::errors::Error;
 
     #[test]
     fn test_message_sender() {

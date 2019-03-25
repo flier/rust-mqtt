@@ -7,8 +7,8 @@ use slab::Slab;
 use futures::sync::mpsc::{unbounded, SendError, UnboundedReceiver, UnboundedSender};
 use futures::{Poll, Sink, StartSend, Stream};
 
-use errors::Result;
-use topic::{Filter, Level};
+use crate::errors::Result;
+use crate::topic::{Filter, Level};
 
 type SubscriberIdx = usize;
 type NodeIdx = usize;
@@ -323,8 +323,6 @@ impl<T> Iterator for TopicSubscribers<T> {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-
     use super::*;
 
     #[test]

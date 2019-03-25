@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use futures::{Sink, Stream};
 
-use errors::{Error, Result};
-use message::Message;
-use server::{Subscribed, Subscriber, Subscription, TopicSubscribers};
-use topic::Filter;
+use crate::errors::{Error, Result};
+use crate::message::Message;
+use crate::server::{Subscribed, Subscriber, Subscription, TopicSubscribers};
+use crate::topic::Filter;
 
 pub trait TopicProvider: Clone {
     type Message;

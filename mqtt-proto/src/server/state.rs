@@ -3,9 +3,9 @@ use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use core::{ClientId, ConnectReturnCode, LastWill, Protocol};
-use errors::{ErrorKind, Result};
-use server::{Authenticator, Session, SessionProvider, TopicProvider};
+use crate::core::{ClientId, ConnectReturnCode, LastWill, Protocol};
+use crate::errors::{ErrorKind, Result};
+use crate::server::{Authenticator, Session, SessionProvider, TopicProvider};
 
 #[derive(Clone, Debug)]
 pub enum State<'a, S, T, A> {

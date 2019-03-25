@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio_core::reactor::{Handle, Remote};
 use tokio_service::{NewService, Service};
 
-use server::{
+use crate::server::{
     shutdown, Authenticator, Conn, MockAuthenticator, Session, SessionProvider, TopicProvider,
 };
 

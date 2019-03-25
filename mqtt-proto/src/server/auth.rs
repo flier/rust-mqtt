@@ -6,7 +6,7 @@ use std::str;
 
 use pwhash::bcrypt;
 
-use errors::{Error, ErrorKind, Result};
+use crate::errors::{Error, ErrorKind, Result};
 
 pub trait Authenticator: Clone {
     type Profile;

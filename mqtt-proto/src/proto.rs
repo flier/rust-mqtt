@@ -5,8 +5,8 @@ use tokio_io::codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::multiplex::{ClientProto, ServerProto};
 
-use codec::Codec;
-use core::Packet;
+use crate::codec::Codec;
+use crate::core::Packet;
 
 /// MQTT protocol codec
 #[derive(Debug, Default)]

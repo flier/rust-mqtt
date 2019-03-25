@@ -7,7 +7,7 @@ use nom::Err;
 use tokio_io::codec::{Decoder, Encoder};
 use tokio_proto::multiplex::RequestId;
 
-use core::{decode_variable_length_usize, Packet, ReadPacketExt, WritePacketExt};
+use crate::core::{decode_variable_length_usize, Packet, ReadPacketExt, WritePacketExt};
 
 /// MQTT protocol codec
 #[derive(Debug, Default)]

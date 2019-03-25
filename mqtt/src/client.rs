@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use slab::Slab;
 
-use core::*;
-use error::*;
-use transport::{self, Transport};
+use crate::core::*;
+use crate::error::*;
+use crate::transport::{self, Transport};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Message<'a> {

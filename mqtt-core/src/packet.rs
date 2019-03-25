@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use proto::{Protocol, QoS};
+use crate::proto::{Protocol, QoS};
 
 bitflags! {
     /// Connect Flags

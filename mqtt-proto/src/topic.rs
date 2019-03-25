@@ -5,7 +5,7 @@ use std::iter::Iterator;
 use std::ops::{Deref, DerefMut, Div, DivAssign};
 use std::str::FromStr;
 
-use errors::{Error, ErrorKind, Result};
+use crate::errors::{Error, ErrorKind, Result};
 
 fn is_metadata<T: AsRef<str>>(s: T) -> bool {
     s.as_ref().chars().nth(0) == Some('$')

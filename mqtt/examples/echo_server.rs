@@ -51,7 +51,7 @@ mod errors {
     }
 }
 
-use errors::*;
+use crate::errors::*;
 
 const SERVER: Token = Token(0);
 
