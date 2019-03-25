@@ -2,12 +2,12 @@ use std::io;
 use std::marker::PhantomData;
 
 use bytes::BytesMut;
-use nom::{IError, IResult};
+use nom::Err;
 
 use tokio_io::codec::{Decoder, Encoder};
 use tokio_proto::multiplex::RequestId;
 
-use core::{Packet, ReadPacketExt, WritePacketExt, decode_variable_length_usize};
+use core::{decode_variable_length_usize, Packet, ReadPacketExt, WritePacketExt};
 
 /// MQTT protocol codec
 #[derive(Debug, Default)]
@@ -36,7 +36,7 @@ impl<'a> Decoder for Codec<'a> {
     type Error = io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Self::Item>> {
-        if let IResult::Done(_, size) = decode_variable_length_usize(&buf[1..]) {
+        if let Ok((_, size)) = decode_variable_length_usize(&buf[1..]) {
             match buf.split_to(size).read_packet() {
                 Ok(packet) => {
                     trace!("decode {} bytes to packet", size);
@@ -46,15 +46,18 @@ impl<'a> Decoder for Codec<'a> {
                         packet.into_owned(),
                     )))
                 }
-                Err(IError::Incomplete(_)) => {
+                Err(Err::Incomplete(_)) => {
                     trace!("skip incomplete packet");
 
                     Ok(None)
                 }
-                Err(IError::Error(err)) => {
+                Err(Err::Error(err)) | Err(Err::Failure(err)) => {
+                    let err = err.into_error_kind();
+                    let err = err.description();
+
                     warn!("fail to decode packet, {}", err);
 
-                    Err(io::Error::new(io::ErrorKind::Other, err.description()))
+                    Err(io::Error::new(io::ErrorKind::Other, err))
                 }
             }
         } else {

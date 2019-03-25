@@ -7,8 +7,9 @@ use tokio_service::Service;
 
 use core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
 use errors::{Error, ErrorKind, Result};
-use server::{Authenticator, Connected, Session, SessionProvider, ShutdownSignal, State,
-             TopicProvider};
+use server::{
+    Authenticator, Connected, Session, SessionProvider, ShutdownSignal, State, TopicProvider,
+};
 
 /// MQTT service
 pub struct Conn<'a, S, T, A> {
@@ -22,7 +23,9 @@ impl<'a, S, T, A> Conn<'a, S, T, A> {
         topics: T,
         authenticator: Option<Arc<Mutex<A>>>,
     ) -> Conn<'a, S, T, A> {
-        Conn { state: Cell::new(State::new(sessions, topics, authenticator)) }
+        Conn {
+            state: Cell::new(State::new(sessions, topics, authenticator)),
+        }
     }
 
     pub fn connected(&self) -> Option<Connected<'a>> {
@@ -32,10 +35,7 @@ impl<'a, S, T, A> Conn<'a, S, T, A> {
 
 impl<'a, S, T, A> Service for Conn<'a, S, T, A>
 where
-    S: SessionProvider<
-        Key = String,
-        Value = Arc<Mutex<Session<'a>>>,
-    >,
+    S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
     T: TopicProvider,
     A: Authenticator,
 {
@@ -139,37 +139,37 @@ where
                         let session = connected.session();
                         let mut session = session.lock()?;
 
-                        session.message_sender.on_publish_ack(packet_id).map(
-                            |_| None,
-                        )?
+                        session
+                            .message_sender
+                            .on_publish_ack(packet_id)
+                            .map(|_| None)?
                     }
                     Packet::PublishReceived { packet_id } => {
                         let session = connected.session();
                         let mut session = session.lock()?;
 
-                        session.message_sender.on_publish_received(packet_id).map(
-                            |packet_id| Some(Packet::PublishRelease { packet_id }),
-                        )?
+                        session
+                            .message_sender
+                            .on_publish_received(packet_id)
+                            .map(|packet_id| Some(Packet::PublishRelease { packet_id }))?
                     }
                     Packet::PublishComplete { packet_id } => {
                         let session = connected.session();
                         let mut session = session.lock()?;
 
-                        session.message_sender.on_publish_complete(packet_id).map(
-                            |_| {
-                                None
-                            },
-                        )?
+                        session
+                            .message_sender
+                            .on_publish_complete(packet_id)
+                            .map(|_| None)?
                     }
                     Packet::PublishRelease { packet_id } => {
                         let session = connected.session();
                         let mut session = session.lock()?;
 
-                        session.message_receiver.on_publish_release(packet_id).map(
-                            |_| {
-                                None
-                            },
-                        )?
+                        session
+                            .message_receiver
+                            .on_publish_release(packet_id)
+                            .map(|_| None)?
                     }
                     Packet::Subscribe {
                         packet_id,
@@ -187,9 +187,9 @@ where
                                     let session = Arc::clone(&session);
                                     let lock = session.try_lock().map_err(|err| err.into());
 
-                                    match lock.and_then(
-                                        move |mut session| session.subscribe(filter, qos),
-                                    ) {
+                                    match lock
+                                        .and_then(move |mut session| session.subscribe(filter, qos))
+                                    {
                                         Ok(_) => {
                                             trace!(
                                                 "subscribed filter {} with QoS {:?}",
@@ -264,11 +264,10 @@ pub mod tests {
 
     use super::*;
     use core::{LastWill, Protocol};
-    use server::{InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator, shutdown};
+    use server::{shutdown, InMemorySessionProvider, InMemoryTopicProvider, MockAuthenticator};
 
-    fn new_test_conn<'a>()
-        -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider<'a>, MockAuthenticator>
-    {
+    fn new_test_conn<'a>(
+    ) -> Conn<'a, InMemorySessionProvider<'a>, InMemoryTopicProvider<'a>, MockAuthenticator> {
         new_test_conn_with_provider(
             Arc::new(Mutex::new(InMemorySessionProvider::default())),
             InMemoryTopicProvider::default(),
@@ -305,42 +304,55 @@ pub mod tests {
     fn test_request_before_connect() {
         // After a Network Connection is established by a Client to a Server,
         // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
-        assert_matches!(new_test_conn().call(Packet::PingRequest).poll(), Err(Error(ErrorKind::ProtocolViolation, _)));
+        assert_matches!(
+            new_test_conn().call(Packet::PingRequest).poll(),
+            Err(Error(ErrorKind::ProtocolViolation, _))
+        );
     }
 
     #[test]
     fn test_connect_with_unacceptable_protocol_version() {
         // The Server MUST respond to the CONNECT Packet with a CONNACK return code 0x01 (unacceptable protocol level)
         // and then disconnect the Client if the Protocol Level is not supported by the Server [MQTT-3.1.2-2].
-        assert_matches!(new_test_conn().call(Packet::Connect {
-            protocol: Protocol::MQTT(123),
-            clean_session: false,
-            keep_alive: 0,
-            last_will: None,
-            client_id: Cow::from("client_id"),
-            username: None,
-            password: None,
-        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::UnacceptableProtocolVersion
-        }))));
+        assert_matches!(
+            new_test_conn()
+                .call(Packet::Connect {
+                    protocol: Protocol::MQTT(123),
+                    clean_session: false,
+                    keep_alive: 0,
+                    last_will: None,
+                    client_id: Cow::from("client_id"),
+                    username: None,
+                    password: None,
+                })
+                .poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::UnacceptableProtocolVersion
+            })))
+        );
     }
 
     #[test]
     fn test_missing_client_id() {
         /// The Client Identifier (ClientId) MUST be present and MUST be the first field in the CONNECT packet payload [MQTT-3.1.3-3].
-        assert_matches!(new_test_conn().call(Packet::Connect {
-            protocol: Protocol::default(),
-            clean_session: false,
-            keep_alive: 0,
-            last_will: None,
-            client_id: Cow::from(""),
-            username: None,
-            password: None,
-        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::IdentifierRejected
-        }))));
+        assert_matches!(
+            new_test_conn()
+                .call(Packet::Connect {
+                    protocol: Protocol::default(),
+                    clean_session: false,
+                    keep_alive: 0,
+                    last_will: None,
+                    client_id: Cow::from(""),
+                    username: None,
+                    password: None,
+                })
+                .poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::IdentifierRejected
+            })))
+        );
     }
 
     #[test]
@@ -348,18 +360,23 @@ pub mod tests {
         // The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length,
         // and that contain only the characters
         // "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" [MQTT-3.1.3-5].
-        assert_matches!(new_test_conn().call(Packet::Connect {
-            protocol: Protocol::default(),
-            clean_session: false,
-            keep_alive: 0,
-            last_will: None,
-            client_id: Cow::from("client_id"),
-            username: None,
-            password: None,
-        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::IdentifierRejected
-        }))));
+        assert_matches!(
+            new_test_conn()
+                .call(Packet::Connect {
+                    protocol: Protocol::default(),
+                    clean_session: false,
+                    keep_alive: 0,
+                    last_will: None,
+                    client_id: Cow::from("client_id"),
+                    username: None,
+                    password: None,
+                })
+                .poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::IdentifierRejected
+            })))
+        );
     }
 
     #[test]
@@ -367,10 +384,13 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         let connected = conn.connected();
 
@@ -387,10 +407,13 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         let connected = conn.connected().unwrap();
         let session = connected.session();
@@ -399,7 +422,10 @@ pub mod tests {
         //      MUST discard any Will Message associated with the current connection without publishing it,
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
-        assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
+        assert_matches!(
+            conn.call(Packet::Disconnect).poll(),
+            Err(Error(ErrorKind::ConnectionClosed, _))
+        );
 
         assert!(conn.connected().is_none());
         assert!(session.lock().unwrap().last_will().is_none());
@@ -413,16 +439,22 @@ pub mod tests {
             new_test_conn_with_provider(Arc::clone(&session_provider), topic_provider.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         // On receipt of DISCONNECT the Server:
         //      MUST discard any Will Message associated with the current connection without publishing it,
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
-        assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
+        assert_matches!(
+            conn.call(Packet::Disconnect).poll(),
+            Err(Error(ErrorKind::ConnectionClosed, _))
+        );
 
         let conn =
             new_test_conn_with_provider(Arc::clone(&session_provider), topic_provider.clone());
@@ -431,10 +463,13 @@ pub mod tests {
         // the value set in Session Present depends on whether the Server already has stored Session state
         // for the supplied client ID. If the Server has stored Session state,
         // it MUST set Session Present to 1 in the CONNACK packet [MQTT-3.2.2-2].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: true,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: true,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         assert!(conn.connected().is_some());
     }
@@ -447,10 +482,13 @@ pub mod tests {
             new_test_conn_with_provider(Arc::clone(&session_provider), topic_provider.clone());
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         let connected = conn.connected().unwrap();
         let session = connected.session();
@@ -459,40 +497,53 @@ pub mod tests {
         //      MUST discard any Will Message associated with the current connection without publishing it,
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
-        assert_matches!(conn.call(Packet::Disconnect).poll(), Err(Error(ErrorKind::ConnectionClosed, _)));
+        assert_matches!(
+            conn.call(Packet::Disconnect).poll(),
+            Err(Error(ErrorKind::ConnectionClosed, _))
+        );
 
         let conn = new_test_conn_with_provider(session_provider, topic_provider.clone());
 
-        assert_matches!(conn.call(Packet::Connect {
-            protocol: Protocol::default(),
-            clean_session: true,
-            keep_alive: 0,
-            last_will: Some(LastWill {
-                qos: QoS::AtLeastOnce,
-                retain: false,
-                topic: Cow::from("another_topic"),
-                message: Cow::from(&b"another_messages"[..]),
-            }),
-            client_id: Cow::from("client"),
-            username: None,
-            password: None,
-        }).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(Packet::Connect {
+                protocol: Protocol::default(),
+                clean_session: true,
+                keep_alive: 0,
+                last_will: Some(LastWill {
+                    qos: QoS::AtLeastOnce,
+                    retain: false,
+                    topic: Cow::from("another_topic"),
+                    message: Cow::from(&b"another_messages"[..]),
+                }),
+                client_id: Cow::from("client"),
+                username: None,
+                password: None,
+            })
+            .poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         assert!(conn.connected().is_some());
 
         let connected = conn.connected().unwrap();
         let new_session = connected.session();
 
-        assert_ne!(session.lock().unwrap().last_will(), new_session.lock().unwrap().last_will());
-        assert_eq!(new_session.lock().unwrap().last_will().unwrap(), &LastWill {
-            qos: QoS::AtLeastOnce,
-            retain: false,
-            topic: Cow::from("another_topic"),
-            message: Cow::from(&b"another_messages"[..]),
-        });
+        assert_ne!(
+            session.lock().unwrap().last_will(),
+            new_session.lock().unwrap().last_will()
+        );
+        assert_eq!(
+            new_session.lock().unwrap().last_will().unwrap(),
+            &LastWill {
+                qos: QoS::AtLeastOnce,
+                retain: false,
+                topic: Cow::from("another_topic"),
+                message: Cow::from(&b"another_messages"[..]),
+            }
+        );
     }
 
     #[test]
@@ -500,23 +551,30 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         // A Client can only send the CONNECT Packet once over a Network Connection.
         // The Server MUST process a second CONNECT Packet sent from a Client as a protocol violation
         // and disconnect the Client [MQTT-3.1.0-2].
-        assert_matches!(conn.call(Packet::Connect {
-            protocol: Protocol::default(),
-            clean_session: false,
-            keep_alive: 0,
-            last_will: None,
-            client_id: Cow::from("client"),
-            username: None,
-            password: None,
-        }).poll(), Err(Error(ErrorKind::ProtocolViolation, _)));
+        assert_matches!(
+            conn.call(Packet::Connect {
+                protocol: Protocol::default(),
+                clean_session: false,
+                keep_alive: 0,
+                last_will: None,
+                client_id: Cow::from("client"),
+                username: None,
+                password: None,
+            })
+            .poll(),
+            Err(Error(ErrorKind::ProtocolViolation, _))
+        );
 
         assert!(conn.connected().is_none());
     }
@@ -526,12 +584,18 @@ pub mod tests {
         let conn = new_test_conn();
 
         // The Server MUST acknowledge the CONNECT Packet with a CONNACK Packet containing a zero return code [MQTT-3.1.4-4].
-        assert_matches!(conn.call(CONNECT_REQUEST.clone()).poll(), Ok(Async::Ready(Some(Packet::ConnectAck {
-            session_present: false,
-            return_code: ConnectReturnCode::ConnectionAccepted
-        }))));
+        assert_matches!(
+            conn.call(CONNECT_REQUEST.clone()).poll(),
+            Ok(Async::Ready(Some(Packet::ConnectAck {
+                session_present: false,
+                return_code: ConnectReturnCode::ConnectionAccepted
+            })))
+        );
 
         // The Server MUST send a PINGRESP Packet in response to a PINGREQ Packet [MQTT-3.12.4-1].
-        assert_matches!(conn.call(Packet::PingRequest).poll(), Ok(Async::Ready(Some(Packet::PingResponse))));
+        assert_matches!(
+            conn.call(Packet::PingRequest).poll(),
+            Ok(Async::Ready(Some(Packet::PingResponse)))
+        );
     }
 }

@@ -1,10 +1,10 @@
-use futures::Async;
-use futures::Poll;
 use futures::future::Future;
 use futures::stream::Stream;
+use futures::sync::mpsc::unbounded;
 use futures::sync::mpsc::UnboundedReceiver;
 use futures::sync::mpsc::UnboundedSender;
-use futures::sync::mpsc::unbounded;
+use futures::Async;
+use futures::Poll;
 
 use void::Void;
 

@@ -10,12 +10,12 @@ keywords = ["MQTT", "IoT", "messaging"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-log = "^0.3"
-error-chain = "^0.11"
-bytes = "^0.4"
-nom = "^3.2"
-slab = "^0.4"
-rotor = "^0.6"
+log = "0.4"
+error-chain = "0.12"
+bytes = "0.4"
+nom = "4.2"
+slab = "0.4"
+rotor = "0.6"
 
 mqtt-core = { version = "*", path = "../mqtt-core" }
 mqtt-proto = { version = "*", path = "../mqtt-proto" }
@@ -23,6 +23,11 @@ mqtt-proto = { version = "*", path = "../mqtt-proto" }
 clippy = {version = "*", optional = true}
 
 [dev-dependencies]
-env_logger = "^0.4"
+pretty_env_logger = "0.3"
 clap = "^2"
 mio = "^0.6"
+criterion = "0.2"
+
+[[bench]]
+name = "topic"
+harness = false

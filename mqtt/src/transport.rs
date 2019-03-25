@@ -1,20 +1,19 @@
-use std::mem;
+use std::convert::AsMut;
 use std::io;
 use std::io::prelude::*;
+use std::mem;
 use std::net::{self, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::convert::AsMut;
 
 use bytes::{BufMut, Bytes, BytesMut};
+use nom::Err;
 
-use nom::IError;
-
-use rotor::{EventSet, PollOpt, Void};
 use rotor::mio::tcp::{TcpListener, TcpStream};
-use rotor::{Machine, Response, EarlyScope, Scope, GenericScope};
+use rotor::{EarlyScope, GenericScope, Machine, Response, Scope};
+use rotor::{EventSet, PollOpt, Void};
 
-use error::*;
 use core::*;
+use error::*;
 
 pub trait Handler<'a> {
     fn on_received_packet(&mut self, packet: &Packet<'a>);
@@ -172,7 +171,7 @@ impl State {
 
                 Ok(())
             }
-            Err(IError::Incomplete(_)) => {
+            Err(Err::Incomplete(_)) => {
                 debug!("packet incomplete, read again");
 
                 Ok(())
@@ -227,11 +226,14 @@ impl Tcp {
     }
 
     fn wrap_listener(res: io::Result<TcpListener>, scope: &mut EarlyScope) -> Response<Self, Void> {
-        match res.and_then(|sock| {
-            info!("tcp server listen on {}", sock.local_addr()?);
+        match res
+            .and_then(|sock| {
+                info!("tcp server listen on {}", sock.local_addr()?);
 
-            Ok(Tcp::Server(sock))
-        }).and_then(|m| m.register(scope).map(|_| m)) {
+                Ok(Tcp::Server(sock))
+            })
+            .and_then(|m| m.register(scope).map(|_| m))
+        {
             Ok(m) => Response::ok(m),
             Err(err) => Response::error(Box::new(err)),
         }
@@ -253,11 +255,14 @@ impl Tcp {
         res: io::Result<TcpStream>,
         scope: &mut EarlyScope,
     ) -> Response<(Fsm, TcpClient), Void> {
-        match res.and_then(|sock| {
-            info!("tcp stream {} -> {}", sock.local_addr()?, sock.peer_addr()?);
+        match res
+            .and_then(|sock| {
+                info!("tcp stream {} -> {}", sock.local_addr()?, sock.peer_addr()?);
 
-            Ok(Tcp::Client(sock))
-        }).and_then(|m| m.register(scope).map(|_| m)) {
+                Ok(Tcp::Client(sock))
+            })
+            .and_then(|m| m.register(scope).map(|_| m))
+        {
             Ok(m) => {
                 let arc = Arc::new(Mutex::new(m));
 
@@ -269,25 +274,23 @@ impl Tcp {
 
     fn accept(self) -> Response<Self, TcpStream> {
         match self {
-            Tcp::Server(sock) => {
-                match sock.accept() {
-                    Ok(None) => {
-                        debug!("accept none, try again");
+            Tcp::Server(sock) => match sock.accept() {
+                Ok(None) => {
+                    debug!("accept none, try again");
 
-                        Response::ok(Tcp::Server(sock))
-                    }
-                    Ok(Some((conn, addr))) => {
-                        debug!("accept connection from {}", addr);
-
-                        Response::spawn(Tcp::Server(sock), conn)
-                    }
-                    Err(err) => {
-                        warn!("fail to accept connection, {}", err);
-
-                        Response::ok(Tcp::Server(sock))
-                    }
+                    Response::ok(Tcp::Server(sock))
                 }
-            }
+                Ok(Some((conn, addr))) => {
+                    debug!("accept connection from {}", addr);
+
+                    Response::spawn(Tcp::Server(sock), conn)
+                }
+                Err(err) => {
+                    warn!("fail to accept connection, {}", err);
+
+                    Response::ok(Tcp::Server(sock))
+                }
+            },
             _ => {
                 error!("invalid state when accept");
 
@@ -312,29 +315,27 @@ impl Tcp {
                     PollOpt::edge() | PollOpt::oneshot(),
                 )
             }
-            Tcp::Connection(ref sock, ref state) => {
-                match *state {
-                    State::Receiving(..) => {
-                        debug!("connection register for readable");
+            Tcp::Connection(ref sock, ref state) => match *state {
+                State::Receiving(..) => {
+                    debug!("connection register for readable");
 
-                        scope.register(
-                            sock,
-                            EventSet::readable(),
-                            PollOpt::edge() | PollOpt::oneshot(),
-                        )
-                    }
-                    State::Sending(..) => {
-                        debug!("connection register for writable");
-
-                        scope.register(
-                            sock,
-                            EventSet::writable(),
-                            PollOpt::edge() | PollOpt::oneshot(),
-                        )
-                    }
-                    _ => Ok(()),
+                    scope.register(
+                        sock,
+                        EventSet::readable(),
+                        PollOpt::edge() | PollOpt::oneshot(),
+                    )
                 }
-            }
+                State::Sending(..) => {
+                    debug!("connection register for writable");
+
+                    scope.register(
+                        sock,
+                        EventSet::writable(),
+                        PollOpt::edge() | PollOpt::oneshot(),
+                    )
+                }
+                _ => Ok(()),
+            },
         }
     }
 }
@@ -344,11 +345,9 @@ impl Machine for Tcp {
     type Context = TcpContext;
 
     fn create(conn: TcpStream, scope: &mut Scope<TcpContext>) -> Response<Self, Void> {
-        match Ok(Tcp::Connection(conn, State::receiving())).and_then(
-            |m| {
-                m.register(scope).map(|_| m)
-            },
-        ) {
+        match Ok(Tcp::Connection(conn, State::receiving()))
+            .and_then(|m| m.register(scope).map(|_| m))
+        {
             Ok(m) => Response::ok(m),
             Err(err) => Response::error(Box::new(err)),
         }
@@ -358,41 +357,35 @@ impl Machine for Tcp {
         match self {
             Tcp::Server(..) => self.accept(),
             Tcp::Client(sock) => Response::ok(Tcp::Connection(sock, State::receiving())),
-            Tcp::Connection(mut sock, mut state) => {
-                match state {
-                    _ if events.is_hup() => Response::done(),
+            Tcp::Connection(mut sock, mut state) => match state {
+                _ if events.is_hup() => Response::done(),
 
-                    State::Receiving(..) if events.is_readable() => {
-                        state
-                            .async_read(&mut sock)
-                            .map(|_| Tcp::Connection(sock, state))
-                            .and_then(|m| {
-                                m.register(scope)?;
-                                Ok(m)
-                            })
-                            .map(|m| Response::ok(m))
-                            .unwrap_or(Response::done())
-                    }
+                State::Receiving(..) if events.is_readable() => state
+                    .async_read(&mut sock)
+                    .map(|_| Tcp::Connection(sock, state))
+                    .and_then(|m| {
+                        m.register(scope)?;
+                        Ok(m)
+                    })
+                    .map(|m| Response::ok(m))
+                    .unwrap_or(Response::done()),
 
-                    State::Sending(..) if events.is_writable() => {
-                        state
-                            .async_write(&mut sock)
-                            .map(|_| Tcp::Connection(sock, state))
-                            .and_then(|m| {
-                                m.register(scope)?;
-                                Ok(m)
-                            })
-                            .map(|m| Response::ok(m))
-                            .unwrap_or(Response::done())
-                    }
+                State::Sending(..) if events.is_writable() => state
+                    .async_write(&mut sock)
+                    .map(|_| Tcp::Connection(sock, state))
+                    .and_then(|m| {
+                        m.register(scope)?;
+                        Ok(m)
+                    })
+                    .map(|m| Response::ok(m))
+                    .unwrap_or(Response::done()),
 
-                    _ => {
-                        error!("invalid state when ready");
+                _ => {
+                    error!("invalid state when ready");
 
-                        Response::done()
-                    }
+                    Response::done()
                 }
-            }
+            },
         }
     }
 

@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 
+use serde::{Deserialize, Serialize};
+
 use proto::{Protocol, QoS};
 
 bitflags! {
-    #[doc="Connect Flags"]
+    /// Connect Flags
     pub struct ConnectFlags: u8 {
         const USERNAME      = 0b1000_0000;
         const PASSWORD      = 0b0100_0000;
@@ -17,7 +19,7 @@ bitflags! {
 pub const WILL_QOS_SHIFT: u8 = 3;
 
 bitflags! {
-    #[doc="Connect Acknowledge Flags"]
+    /// Connect Acknowledge Flags
     pub struct ConnectAckFlags: u8 {
         const SESSION_PRESENT = 0b0000_0001;
     }
@@ -236,7 +238,9 @@ impl<'a> Packet<'a> {
     /// Flags specific to each MQTT Control Packet type
     pub fn packet_flags(&self) -> u8 {
         match *self {
-            Packet::Publish { dup, qos, retain, .. } => {
+            Packet::Publish {
+                dup, qos, retain, ..
+            } => {
                 let mut b = qos.into();
 
                 b <<= 1;
@@ -251,23 +255,23 @@ impl<'a> Packet<'a> {
 
                 b
             }
-            Packet::PublishRelease { .. } |
-            Packet::Subscribe { .. } |
-            Packet::Unsubscribe { .. } => 0b0010,
+            Packet::PublishRelease { .. }
+            | Packet::Subscribe { .. }
+            | Packet::Unsubscribe { .. } => 0b0010,
             _ => 0,
         }
     }
 
     pub fn packet_id(&self) -> Option<PacketId> {
         match *self {
-            Packet::PublishAck { packet_id } |
-            Packet::PublishReceived { packet_id } |
-            Packet::PublishRelease { packet_id } |
-            Packet::PublishComplete { packet_id } |
-            Packet::Subscribe { packet_id, .. } |
-            Packet::SubscribeAck { packet_id, .. } |
-            Packet::Unsubscribe { packet_id, .. } |
-            Packet::UnsubscribeAck { packet_id } => Some(packet_id),
+            Packet::PublishAck { packet_id }
+            | Packet::PublishReceived { packet_id }
+            | Packet::PublishRelease { packet_id }
+            | Packet::PublishComplete { packet_id }
+            | Packet::Subscribe { packet_id, .. }
+            | Packet::SubscribeAck { packet_id, .. }
+            | Packet::Unsubscribe { packet_id, .. }
+            | Packet::UnsubscribeAck { packet_id } => Some(packet_id),
             _ => None,
         }
     }
@@ -286,13 +290,11 @@ impl<'a> Packet<'a> {
                 protocol,
                 clean_session,
                 keep_alive,
-                last_will: last_will.map(|last_will| {
-                    LastWill {
-                        qos: last_will.qos,
-                        retain: last_will.retain,
-                        topic: last_will.topic.into_owned().into(),
-                        message: last_will.message.into_owned().into(),
-                    }
+                last_will: last_will.map(|last_will| LastWill {
+                    qos: last_will.qos,
+                    retain: last_will.retain,
+                    topic: last_will.topic.into_owned().into(),
+                    message: last_will.message.into_owned().into(),
                 }),
                 client_id: client_id.into_owned().into(),
                 username: username.map(|o| o.into_owned().into()),
@@ -334,10 +336,9 @@ impl<'a> Packet<'a> {
                     .map(|(filter, qos)| (filter.into_owned().into(), qos))
                     .collect(),
             },
-            Packet::SubscribeAck { packet_id, status } => Packet::SubscribeAck {
-                packet_id,
-                status,
-            },
+            Packet::SubscribeAck { packet_id, status } => {
+                Packet::SubscribeAck { packet_id, status }
+            }
             Packet::Unsubscribe {
                 packet_id,
                 topic_filters,

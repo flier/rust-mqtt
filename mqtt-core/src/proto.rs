@@ -1,7 +1,11 @@
 use std::fmt::{self, Display, Formatter};
+use std::iter;
 use std::ops::Deref;
 
-use rand::{Rng, thread_rng};
+use serde::{Deserialize, Serialize};
+
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 
 #[doc(hidden)]
 #[macro_export]
@@ -18,7 +22,7 @@ macro_rules! const_enum {
                 unsafe { ::std::mem::transmute(u) }
             }
         }
-    }
+    };
 }
 
 pub const DEFAULT_MQTT_LEVEL: u8 = 4;
@@ -101,12 +105,20 @@ impl ClientId {
     pub fn is_valid<S: AsRef<str>>(s: S) -> bool {
         let s = s.as_ref();
 
-        !s.is_empty() && s.len() <= MAX_CLIENT_ID_LENGTH &&
-            s.bytes().all(|b| CLIENT_ID_CHARS.contains(&b))
+        !s.is_empty()
+            && s.len() <= MAX_CLIENT_ID_LENGTH
+            && s.bytes().all(|b| CLIENT_ID_CHARS.contains(&b))
     }
 
     pub fn with_size(size: usize) -> ClientId {
-        ClientId(thread_rng().gen_ascii_chars().take(size).collect())
+        let mut rng = thread_rng();
+
+        ClientId(
+            iter::repeat(())
+                .map(|()| rng.sample(Alphanumeric))
+                .take(size)
+                .collect(),
+        )
     }
 
     pub fn as_ref(&self) -> &str {

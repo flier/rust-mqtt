@@ -1,43 +1,56 @@
-#![feature(test)]
-
-extern crate test;
+#[macro_use]
+extern crate criterion;
 #[macro_use]
 extern crate mqtt;
 
-use test::Bencher;
+use criterion::Criterion;
 
+use mqtt::proto::MatchTopic;
 use mqtt::*;
 
-#[bench]
-fn bench_parse_topic(b: &mut Bencher) {
-    b.iter(|| topic!("$SYS/+/player1"))
+fn bench_parse_topic(c: &mut Criterion) {
+    c.bench_function("parse_topic", |b| {
+        b.iter(|| {
+            let _ = topic!("$SYS/+/player1");
+        })
+    });
 }
 
-#[bench]
-fn bench_match_topic(b: &mut Bencher) {
-    let t1 = topic!("sport/tennis/player1");
-    let t2 = topic!("sport/+/player1");
+fn bench_match_topic(c: &mut Criterion) {
+    c.bench_function("match_topic", move |b| {
+        let t1 = topic!("sport/tennis/player1");
+        let t2 = topic!("sport/+/player1");
 
-    b.iter(|| t1.match_topic(&t2))
+        b.iter(|| {
+            let _ = t1.match_topic(&t2);
+        })
+    });
 }
 
-#[bench]
-fn bench_match_topic_tree(b: &mut Bencher) {
-    let tree = TopicTree::build(vec![
-        topic!("sport/tennis/+"),
-        topic!("sport/tennis/player1"),
-        topic!("sport/tennis/player1/#"),
-        topic!("sport/#"),
-        topic!("sport/+"),
-        topic!("#"),
-        topic!("+"),
-        topic!("+/+"),
-        topic!("/+"),
-        topic!("$SYS/#"),
-        topic!("$SYS/monitor/+"),
-        topic!("+/monitor/Clients"),
-    ]);
-    let t = topic!("sport/tennis/player1");
+// fn bench_match_topic_tree(c: &mut Criterion) {
+//     let tree = TopicTree::build(vec![
+//         topic!("sport/tennis/+"),
+//         topic!("sport/tennis/player1"),
+//         topic!("sport/tennis/player1/#"),
+//         topic!("sport/#"),
+//         topic!("sport/+"),
+//         topic!("#"),
+//         topic!("+"),
+//         topic!("+/+"),
+//         topic!("/+"),
+//         topic!("$SYS/#"),
+//         topic!("$SYS/monitor/+"),
+//         topic!("+/monitor/Clients"),
+//     ]);
+//     let t = topic!("sport/tennis/player1");
 
-    b.iter(|| tree.match_topic(&t))
-}
+//     c.bench_function("match_topic_tree", move |b| tree.match_topic(&t));
+// }
+
+criterion_group!(
+    topic,
+    bench_parse_topic,
+    bench_match_topic,
+    // bench_match_topic_tree,
+);
+criterion_main!(topic);

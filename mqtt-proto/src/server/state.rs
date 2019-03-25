@@ -56,7 +56,7 @@ impl<'a, S, T, A> Default for State<'a, S, T, A> {
     }
 }
 
-impl<'a, S,T, A> Connecting<S, T,A>
+impl<'a, S, T, A> Connecting<S, T, A>
 where
     S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
     T: TopicProvider,
@@ -132,11 +132,10 @@ where
                 match authenticator.lock()?.authenticate(
                     client_id.as_str(),
                     username.as_ref(),
-                    password.map(|pass| pass.into_owned()).as_ref().map(
-                        |v| {
-                            v.as_slice()
-                        },
-                    ),
+                    password
+                        .map(|pass| pass.into_owned())
+                        .as_ref()
+                        .map(|v| v.as_slice()),
                 ) {
                     Ok(_) => {
                         info!("user `{}` login as client: {}", username, client_id);
@@ -164,10 +163,9 @@ where
             last_will.map(|last_will| last_will.into_owned()),
         )));
 
-        self.session_provider.lock()?.insert(
-            client_id,
-            Arc::clone(&session),
-        );
+        self.session_provider
+            .lock()?
+            .insert(client_id, Arc::clone(&session));
 
         Ok(Connected {
             session,
@@ -176,7 +174,6 @@ where
         })
     }
 }
-
 
 impl<'a> Connected<'a> {
     pub fn session(&self) -> Arc<Mutex<Session<'a>>> {

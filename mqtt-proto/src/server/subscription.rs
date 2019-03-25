@@ -4,8 +4,8 @@ use std::vec;
 
 use slab::Slab;
 
+use futures::sync::mpsc::{unbounded, SendError, UnboundedReceiver, UnboundedSender};
 use futures::{Poll, Sink, StartSend, Stream};
-use futures::sync::mpsc::{SendError, UnboundedReceiver, UnboundedSender, unbounded};
 
 use errors::Result;
 use topic::{Filter, Level};
@@ -131,7 +131,6 @@ impl<T> Subscription<T> {
         Ok(inner.is_node_empty(inner.root))
     }
 
-
     pub fn purge(&mut self) -> Result<()> {
         let mut inner = self.inner.lock()?;
 
@@ -153,24 +152,19 @@ impl<T> Inner<T> {
 
         for level in filter.levels() {
             cur_node_idx = match *level {
-                Level::Normal(_) |
-                Level::Metadata(_) |
-                Level::Blank => {
-                    self.nodes[cur_node_idx]
-                        .next
-                        .get(level)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            let next_node_idx = self.nodes.insert(Default::default());
+                Level::Normal(_) | Level::Metadata(_) | Level::Blank => self.nodes[cur_node_idx]
+                    .next
+                    .get(level)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        let next_node_idx = self.nodes.insert(Default::default());
 
-                            self.nodes[cur_node_idx].next.insert(
-                                level.clone(),
-                                next_node_idx,
-                            );
+                        self.nodes[cur_node_idx]
+                            .next
+                            .insert(level.clone(), next_node_idx);
 
-                            next_node_idx
-                        })
-                }
+                        next_node_idx
+                    }),
                 Level::SingleWildcard => {
                     if let Some(next_node_idx) = self.nodes[cur_node_idx].single_wildcard {
                         next_node_idx
@@ -205,16 +199,18 @@ impl<T> Inner<T> {
 
     pub fn unsubscribe(&mut self, mut subscribed: Subscribed<T>) -> Arc<Subscriber<T>> {
         if let Some(node) = self.nodes.get_mut(subscribed.node_idx) {
-            if let Some(index) = node.subscribers.iter().position(|&subscriber_idx| {
-                subscriber_idx == subscribed.subscriber_idx
-            })
+            if let Some(index) = node
+                .subscribers
+                .iter()
+                .position(|&subscriber_idx| subscriber_idx == subscribed.subscriber_idx)
             {
                 node.subscribers.remove(index);
             }
 
-            if let Some(index) = node.multi_wildcard.iter().position(|&subscriber_idx| {
-                subscriber_idx == subscribed.subscriber_idx
-            })
+            if let Some(index) = node
+                .multi_wildcard
+                .iter()
+                .position(|&subscriber_idx| subscriber_idx == subscribed.subscriber_idx)
             {
                 node.multi_wildcard.remove(index);
             }
@@ -228,12 +224,12 @@ impl<T> Inner<T> {
     fn is_node_empty(&self, node_idx: NodeIdx) -> bool {
         let node = &self.nodes[node_idx];
 
-        node.subscribers.is_empty() &&
-            node.single_wildcard.map_or(
-                true,
-                |idx| self.is_node_empty(idx),
-            ) && node.multi_wildcard.is_empty() &&
-            node.next.iter().all(|(_, &idx)| self.is_node_empty(idx))
+        node.subscribers.is_empty()
+            && node
+                .single_wildcard
+                .map_or(true, |idx| self.is_node_empty(idx))
+            && node.multi_wildcard.is_empty()
+            && node.next.iter().all(|(_, &idx)| self.is_node_empty(idx))
     }
 
     fn purge_node(&mut self, node_idx: NodeIdx) {
@@ -288,9 +284,7 @@ impl<T> Iterator for TopicSubscribers<T> {
                                 }
 
                                 match level {
-                                    Level::Normal(_) |
-                                    Level::Metadata(_) |
-                                    Level::Blank => {
+                                    Level::Normal(_) | Level::Metadata(_) | Level::Blank => {
                                         if let Some(&next_node_idx) = node.next.get(&level) {
                                             self.next_nodes.push((levels, next_node_idx))
                                         }
@@ -317,10 +311,12 @@ impl<T> Iterator for TopicSubscribers<T> {
 
                 self.subscribers.pop()
             })
-            .and_then(|subscriber_idx| if let Ok(inner) = self.inner.lock() {
-                Some(Arc::clone(&inner.subscribers[subscriber_idx]))
-            } else {
-                None
+            .and_then(|subscriber_idx| {
+                if let Ok(inner) = self.inner.lock() {
+                    Some(Arc::clone(&inner.subscribers[subscriber_idx]))
+                } else {
+                    None
+                }
             })
     }
 }
@@ -383,7 +379,7 @@ mod tests {
             topic_filter!("sport/tennis/player1/#"),
             topic_filter!("sport/#"),
             topic_filter!("sport/+"),
-            topic_filter!("#")
+            topic_filter!("#"),
         ];
 
         let subscribed = filters
@@ -435,12 +431,14 @@ mod tests {
 
         assert_eq!(filters_count, subscribed.len());
 
+        let mut filters = subscription
+            .topic_subscribers("sport/tennis/player1")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect::<Vec<_>>();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("sport/tennis/player1")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![
                 topic_filter!("sport/tennis/player1"),
                 topic_filter!("sport/tennis/player1/#"),
@@ -450,12 +448,14 @@ mod tests {
             ]
         );
 
+        filters = subscription
+            .topic_subscribers("sport/tennis/player1/ranking")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("sport/tennis/player1/ranking")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![
                 topic_filter!("sport/tennis/player1/#"),
                 topic_filter!("sport/#"),
@@ -463,12 +463,14 @@ mod tests {
             ]
         );
 
+        filters = subscription
+            .topic_subscribers("sport/tennis/player1/score/wimbledo")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("sport/tennis/player1/score/wimbledo")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![
                 topic_filter!("sport/tennis/player1/#"),
                 topic_filter!("sport/#"),
@@ -476,12 +478,14 @@ mod tests {
             ]
         );
 
+        filters = subscription
+            .topic_subscribers("sport")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("sport")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![
                 topic_filter!("sport/#"),
                 topic_filter!("+"),
@@ -489,12 +493,14 @@ mod tests {
             ]
         );
 
+        filters = subscription
+            .topic_subscribers("sport/")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("sport/")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![
                 topic_filter!("sport/+"),
                 topic_filter!("sport/#"),
@@ -502,12 +508,15 @@ mod tests {
                 topic_filter!("#"),
             ]
         );
+
+        filters = subscription
+            .topic_subscribers("/finance")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("/finance")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![
                 topic_filter!("/+"),
                 topic_filter!("+/+"),
@@ -515,21 +524,25 @@ mod tests {
             ]
         );
 
+        filters = subscription
+            .topic_subscribers("$SYS/monitor/Clients")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("$SYS/monitor/Clients")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![topic_filter!("$SYS/monitor/+"), topic_filter!("$SYS/#")]
         );
 
+        filters = subscription
+            .topic_subscribers("/monitor/Clients")
+            .unwrap()
+            .map(|sub| sub.filter.clone())
+            .collect();
+        filters.sort();
         assert_eq!(
-            subscription
-                .topic_subscribers("/monitor/Clients")
-                .unwrap()
-                .map(|sub| sub.filter.clone())
-                .sorted(),
+            filters,
             vec![topic_filter!("+/monitor/Clients"), topic_filter!("#")]
         );
     }

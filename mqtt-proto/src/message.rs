@@ -32,7 +32,9 @@ pub struct MessageSender<'a> {
 
 impl<'a> Default for MessageSender<'a> {
     fn default() -> Self {
-        MessageSender { messages: Slab::with_capacity(64) }
+        MessageSender {
+            messages: Slab::with_capacity(64),
+        }
     }
 }
 
@@ -158,9 +160,9 @@ impl<'a> MessageReceiver<'a> {
     }
 
     pub fn on_publish_release(&mut self, packet_id: PacketId) -> Result<Message> {
-        self.messages.remove(&packet_id).ok_or_else(|| {
-            ErrorKind::InvalidPacketId.into()
-        })
+        self.messages
+            .remove(&packet_id)
+            .ok_or_else(|| ErrorKind::InvalidPacketId.into())
     }
 }
 
@@ -186,19 +188,28 @@ pub mod tests {
         assert_eq!(bar, 2);
         assert_eq!(sender.len(), 2);
 
-        assert_matches!(sender[foo as usize-1], SendState::Sending(Message { .. }));
+        assert_matches!(sender[foo as usize - 1], SendState::Sending(Message { .. }));
         assert_matches!(sender.on_publish_ack(foo), Ok(1));
-        assert!(sender.get(foo as usize-1).is_none());
+        assert!(sender.get(foo as usize - 1).is_none());
 
-        assert_matches!(sender[bar as usize-1], SendState::Sending(Message { .. }));
+        assert_matches!(sender[bar as usize - 1], SendState::Sending(Message { .. }));
         assert_matches!(sender.on_publish_received(bar), Ok(2));
-        assert_matches!(sender[bar as usize-1], SendState::Received(_));
+        assert_matches!(sender[bar as usize - 1], SendState::Received(_));
         assert_matches!(sender.on_publish_complete(bar), Ok(2));
-        assert!(sender.get(bar as usize-1).is_none());
+        assert!(sender.get(bar as usize - 1).is_none());
 
-        assert_matches!(sender.on_publish_ack(foo), Err(Error(ErrorKind::InvalidPacketId, _)));
-        assert_matches!(sender.on_publish_received(foo), Err(Error(ErrorKind::InvalidPacketId, _)));
-        assert_matches!(sender.on_publish_complete(foo), Err(Error(ErrorKind::InvalidPacketId, _)));
+        assert_matches!(
+            sender.on_publish_ack(foo),
+            Err(Error(ErrorKind::InvalidPacketId, _))
+        );
+        assert_matches!(
+            sender.on_publish_received(foo),
+            Err(Error(ErrorKind::InvalidPacketId, _))
+        );
+        assert_matches!(
+            sender.on_publish_complete(foo),
+            Err(Error(ErrorKind::InvalidPacketId, _))
+        );
     }
 
     #[test]
@@ -207,16 +218,49 @@ pub mod tests {
 
         assert!(receiver.is_empty());
 
-        assert_matches!(receiver.on_publish(false, false, QoS::AtMostOnce, None, Cow::from("topic"), Cow::from(&b"a"[..])), Ok(None));
-        assert_matches!(receiver.on_publish(false, false, QoS::AtLeastOnce, Some(123), Cow::from("topic"), Cow::from(&b"b"[..])), Ok(Some(123)));
-        assert_matches!(receiver.on_publish(false, false, QoS::ExactlyOnce, Some(456), Cow::from("topic"), Cow::from(&b"c"[..])), Ok(Some(456)));
+        assert_matches!(
+            receiver.on_publish(
+                false,
+                false,
+                QoS::AtMostOnce,
+                None,
+                Cow::from("topic"),
+                Cow::from(&b"a"[..])
+            ),
+            Ok(None)
+        );
+        assert_matches!(
+            receiver.on_publish(
+                false,
+                false,
+                QoS::AtLeastOnce,
+                Some(123),
+                Cow::from("topic"),
+                Cow::from(&b"b"[..])
+            ),
+            Ok(Some(123))
+        );
+        assert_matches!(
+            receiver.on_publish(
+                false,
+                false,
+                QoS::ExactlyOnce,
+                Some(456),
+                Cow::from("topic"),
+                Cow::from(&b"c"[..])
+            ),
+            Ok(Some(456))
+        );
 
         assert_eq!(receiver.len(), 1);
         assert!(receiver.get(&123).is_none());
-        assert_matches!(receiver.get(&456), Some(&Message{..}));
+        assert_matches!(receiver.get(&456), Some(&Message { .. }));
 
-        assert_matches!(receiver.on_publish_release(123), Err(Error(ErrorKind::InvalidPacketId, _)));
-        assert_matches!(receiver.on_publish_release(456), Ok(Message{..}));
+        assert_matches!(
+            receiver.on_publish_release(123),
+            Err(Error(ErrorKind::InvalidPacketId, _))
+        );
+        assert_matches!(receiver.on_publish_release(456), Ok(Message { .. }));
 
         assert!(receiver.is_empty());
     }

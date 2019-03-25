@@ -2,37 +2,37 @@
 
 #[macro_use]
 extern crate log;
-extern crate env_logger;
+extern crate pretty_env_logger;
 
 #[macro_use]
 extern crate error_chain;
 
-extern crate mio;
-extern crate slab;
 extern crate bytes;
-extern crate nom;
 extern crate clap;
+extern crate mio;
+extern crate nom;
+extern crate slab;
 
 extern crate mqtt;
 
-use std::mem;
 use std::io::prelude::*;
-use std::process::exit;
+use std::mem;
 use std::net::ToSocketAddrs;
+use std::process::exit;
 
-use nom::IError;
-use mio::{Token, Poll, PollOpt, Ready, Events};
-use mio::unix::UnixReady;
-use mio::tcp::{TcpListener, TcpStream};
-use slab::Slab;
 use bytes::{BufMut, Bytes, BytesMut};
+use mio::tcp::{TcpListener, TcpStream};
+use mio::unix::UnixReady;
+use mio::{Events, Poll, PollOpt, Ready, Token};
+use nom::Err;
+use slab::Slab;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 
-use mqtt::{read_packet, WritePacketExt};
+use mqtt::core::{read_packet, WritePacketExt};
 
 mod errors {
-    error_chain!{
+    error_chain! {
         types {
             Error, ErrorKind, ResultExt, Result;
         }
@@ -46,7 +46,7 @@ mod errors {
             InvalidAddress
             InvalidState
             InvalidToken
-            InvalidPacket(err: ::nom::IError)
+            InvalidPacket(err: String)
         }
     }
 }
@@ -99,12 +99,7 @@ impl Server {
 
     fn serve(&mut self, poll: &Poll) -> Result<()> {
         // Start listening for incoming connections
-        poll.register(
-            &self.sock,
-            self.token,
-            Ready::readable(),
-            PollOpt::edge(),
-        )?;
+        poll.register(&self.sock, self.token, Ready::readable(), PollOpt::edge())?;
 
         // Create storage for events
         let mut events = Events::with_capacity(1024);
@@ -129,8 +124,7 @@ impl Server {
                                 conn.is_closed()
                             }
                             _ => bail!(ErrorKind::InvalidToken),
-                        }
-                        {
+                        } {
                             self.conns.remove(key);
                         }
                     }
@@ -227,13 +221,15 @@ impl State {
 
                 *self = State::Writing(BytesMut::from(data), Bytes::from(remaining));
             }
-            Err(IError::Incomplete(_)) => {
+            Err(Err::Incomplete(_)) => {
                 debug!("packet incomplete, read again");
             }
             Err(err) => {
                 warn!("fail to parse packet, {:?}", err);
 
-                bail!(ErrorKind::InvalidPacket(err));
+                bail!(ErrorKind::InvalidPacket(
+                    err.into_error_kind().description().to_owned()
+                ));
             }
         }
 
@@ -382,7 +378,7 @@ const DEFAULT_HOST: &'static str = "localhost";
 const DEFAULT_PORT: &'static str = "1883";
 
 fn main() {
-    let _ = env_logger::init().unwrap();
+    pretty_env_logger::init();
 
     let matches = App::new("Echo Server")
         .version("1.0")

@@ -1,9 +1,9 @@
-use std::io::{self, Result, Error, ErrorKind};
+use std::io::{self, Error, ErrorKind, Result};
 
 use byteorder::{BigEndian, WriteBytesExt};
 
-use proto::*;
 use packet::*;
+use proto::*;
 
 pub const MAX_VARIABLE_LENGTH: usize = 0x0fff_ffff; // 0xFF,0xFF,0xFF,0x7F
 
@@ -20,12 +20,8 @@ pub trait WritePacketHelper: io::Write {
         );
 
         Ok(
-            self.write(
-                &[
-                    ((packet.packet_type() as u8) << 4) |
-                        packet.packet_flags(),
-                ],
-            )? + self.write_variable_length(content_size)?,
+            self.write(&[((packet.packet_type() as u8) << 4) | packet.packet_flags()])?
+                + self.write_variable_length(content_size)?,
         )
     }
 
@@ -150,10 +146,10 @@ pub trait WritePacketHelper: io::Write {
                 n += self.write_utf8_str(client_id)?;
 
                 if let Some(LastWill {
-                                ref topic,
-                                ref message,
-                                ..
-                            }) = *last_will
+                    ref topic,
+                    ref message,
+                    ..
+                }) = *last_will
                 {
                     n += self.write_utf8_str(topic)?;
                     n += self.write_fixed_length_bytes(message)?;
@@ -172,12 +168,10 @@ pub trait WritePacketHelper: io::Write {
                 session_present,
                 return_code,
             } => {
-                n += self.write(
-                    &[
-                        if session_present { 0x01 } else { 0x00 },
-                        return_code.into(),
-                    ],
-                )?;
+                n += self.write(&[
+                    if session_present { 0x01 } else { 0x00 },
+                    return_code.into(),
+                ])?;
             }
 
             Packet::Publish {
@@ -198,11 +192,11 @@ pub trait WritePacketHelper: io::Write {
                 n += self.write(payload)?;
             }
 
-            Packet::PublishAck { packet_id } |
-            Packet::PublishReceived { packet_id } |
-            Packet::PublishRelease { packet_id } |
-            Packet::PublishComplete { packet_id } |
-            Packet::UnsubscribeAck { packet_id } => {
+            Packet::PublishAck { packet_id }
+            | Packet::PublishReceived { packet_id }
+            | Packet::PublishRelease { packet_id }
+            | Packet::PublishComplete { packet_id }
+            | Packet::UnsubscribeAck { packet_id } => {
                 self.write_u16::<BigEndian>(packet_id)?;
 
                 n += 2;
@@ -231,10 +225,12 @@ pub trait WritePacketHelper: io::Write {
 
                 let buf: Vec<u8> = status
                     .iter()
-                    .map(|s| if let SubscribeReturnCode::Success(qos) = *s {
-                        qos.into()
-                    } else {
-                        0x80
+                    .map(|s| {
+                        if let SubscribeReturnCode::Success(qos) = *s {
+                            qos.into()
+                        } else {
+                            0x80
+                        }
                     })
                     .collect();
 
@@ -318,9 +314,7 @@ pub trait WritePacketExt: io::Write {
     #[inline]
     /// Writes packet to the underlying writer.
     fn write_packet(&mut self, packet: &Packet) -> Result<usize> {
-        Ok(
-            self.write_fixed_header(packet)? + self.write_content(packet)?,
-        )
+        Ok(self.write_fixed_header(packet)? + self.write_content(packet)?)
     }
 }
 
@@ -329,12 +323,10 @@ impl<W: io::Write + ?Sized> WritePacketExt for W {}
 
 #[cfg(test)]
 mod tests {
-    extern crate env_logger;
-
     use std::borrow::Cow;
 
-    use decode::*;
     use super::*;
+    use decode::*;
 
     #[test]
     fn test_encode_variable_length() {
@@ -399,7 +391,7 @@ mod tests {
             assert_eq!(v.write_packet(&$p).unwrap(), $data.len());
             assert_eq!(v, $data);
             assert_eq!(read_packet($data).unwrap(), (&b""[..], $p));
-        }
+        };
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use std::io;
 use std::marker::PhantomData;
 
-use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::Framed;
+use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::multiplex::{ClientProto, ServerProto};
 
 use codec::Codec;

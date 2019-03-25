@@ -1,11 +1,11 @@
-mod state;
-mod session;
-mod topic;
 mod auth;
 mod conn;
-mod shutdown;
-mod subscription;
 mod server;
+mod session;
+mod shutdown;
+mod state;
+mod subscription;
+mod topic;
 
 pub use self::auth::{Authenticator, InMemoryAuthenticator, MockAuthenticator};
 pub use self::conn::Conn;

@@ -36,9 +36,9 @@ impl InMemoryAuthenticator {
         password: Option<Vec<u8>>,
     ) -> Result<Option<Option<String>>> {
         let value = if let Some(password) = password {
-            Some(bcrypt::hash(
-                unsafe { str::from_utf8_unchecked(&password) },
-            )?)
+            Some(bcrypt::hash(unsafe {
+                str::from_utf8_unchecked(&password)
+            })?)
         } else {
             None
         };
@@ -69,16 +69,16 @@ impl Authenticator for InMemoryAuthenticator {
         username: &'a str,
         password: Option<&'a [u8]>,
     ) -> Result<()> {
-        if self.users.get(username).map_or(
-            false,
-            |hash| match (password, hash) {
+        if self
+            .users
+            .get(username)
+            .map_or(false, |hash| match (password, hash) {
                 (Some(pass), &Some(ref hash)) => {
                     bcrypt::verify(unsafe { str::from_utf8_unchecked(pass) }, hash)
                 }
                 (_, &None) => true,
                 _ => false,
-            },
-        )
+            })
         {
             Ok(())
         } else {
@@ -113,12 +113,20 @@ pub mod tests {
 
         assert!(auth.is_empty());
 
-        assert_matches!(auth.authenticate("client", "user", Some(&b"pass"[..])),
-                        Err(Error(ErrorKind::BadUserNameOrPassword, _)));
+        assert_matches!(
+            auth.authenticate("client", "user", Some(&b"pass"[..])),
+            Err(Error(ErrorKind::BadUserNameOrPassword, _))
+        );
 
-        assert_eq!(auth.insert("user".to_owned(), Some(Vec::from(&b"pass"[..])))
-            .unwrap(), None);
+        assert_eq!(
+            auth.insert("user".to_owned(), Some(Vec::from(&b"pass"[..])))
+                .unwrap(),
+            None
+        );
 
-        assert_matches!(auth.authenticate("client", "user", Some(&b"pass"[..])), Ok(()));
+        assert_matches!(
+            auth.authenticate("client", "user", Some(&b"pass"[..])),
+            Ok(())
+        );
     }
 }

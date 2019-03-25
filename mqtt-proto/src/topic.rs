@@ -17,7 +17,7 @@ pub enum Level {
     Metadata(String), // $SYS
     Blank,
     SingleWildcard, // Single level wildcard +
-    MultiWildcard, // Multi-level wildcard #
+    MultiWildcard,  // Multi-level wildcard #
 }
 
 unsafe impl Send for Level {}
@@ -28,15 +28,17 @@ impl Level {
         let s = s.as_ref();
 
         if s.contains(|c| c == '+' || c == '#') {
-            bail!(ErrorKind::InvalidTopic(
-                format!("invalid normal level `{}` contains +|#", s),
-            ));
+            bail!(ErrorKind::InvalidTopic(format!(
+                "invalid normal level `{}` contains +|#",
+                s
+            ),));
         }
 
         if s.chars().nth(0) == Some('$') {
-            bail!(ErrorKind::InvalidTopic(
-                format!("invalid normal level `{}` starts with $", s),
-            ))
+            bail!(ErrorKind::InvalidTopic(format!(
+                "invalid normal level `{}` starts with $",
+                s
+            ),))
         }
 
         Ok(Level::Normal(s.to_owned()))
@@ -64,8 +66,7 @@ impl Level {
 
     pub fn as_str(&self) -> Option<&str> {
         match *self {
-            Level::Normal(ref s) |
-            Level::Metadata(ref s) => Some(s),
+            Level::Normal(ref s) | Level::Metadata(ref s) => Some(s),
             _ => None,
         }
     }
@@ -101,12 +102,16 @@ impl Level {
 
 #[macro_export]
 macro_rules! normal {
-    ($level:expr) => ($crate::Level::normal($level).unwrap())
+    ($level:expr) => {
+        $crate::Level::normal($level).unwrap()
+    };
 }
 
 #[macro_export]
 macro_rules! metadata {
-    ($level:expr) => ($crate::Level::metadata($level).unwrap())
+    ($level:expr) => {
+        $crate::Level::metadata($level).unwrap()
+    };
 }
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Default, Hash)]
@@ -125,13 +130,14 @@ impl Filter {
             .iter()
             .position(|level| !level.is_valid())
             .or_else(|| {
-                self.0.iter().enumerate().position(
-                    |(pos, level)| match *level {
+                self.0
+                    .iter()
+                    .enumerate()
+                    .position(|(pos, level)| match *level {
                         Level::MultiWildcard => pos != self.0.len() - 1,
                         Level::Metadata(_) => pos != 0,
                         _ => false,
-                    },
-                )
+                    })
             })
             .is_none()
     }
@@ -171,7 +177,9 @@ impl DerefMut for Filter {
 
 #[macro_export]
 macro_rules! topic_filter {
-    ($s:expr) => ($s.parse::<Filter>().unwrap());
+    ($s:expr) => {
+        $s.parse::<Filter>().unwrap()
+    };
 }
 
 pub trait MatchLevel {
@@ -213,16 +221,16 @@ impl<T: AsRef<str>> MatchLevel for T {
 }
 
 macro_rules! match_topic {
-    ($filter:expr, $levels:expr) => ({
+    ($filter:expr, $levels:expr) => {{
         let mut lhs = $filter.0.iter();
 
         for rhs in $levels {
             match lhs.next() {
                 Some(&Level::SingleWildcard) => {
                     if !rhs.match_level(&Level::SingleWildcard) {
-                        break
+                        break;
                     }
-                },
+                }
                 Some(&Level::MultiWildcard) => {
                     return rhs.match_level(&Level::MultiWildcard);
                 }
@@ -236,7 +244,7 @@ macro_rules! match_topic {
             Some(_) => false,
             None => true,
         }
-    })
+    }};
 }
 
 pub trait MatchTopic {
@@ -290,10 +298,12 @@ impl FromStr for Filter {
             .map(|level| level.parse())
             .collect::<Result<Vec<_>>>()
             .map(Filter)
-            .and_then(|filter| if filter.is_valid() {
-                Ok(filter)
-            } else {
-                bail!(ErrorKind::InvalidTopic(s.to_owned()))
+            .and_then(|filter| {
+                if filter.is_valid() {
+                    Ok(filter)
+                } else {
+                    bail!(ErrorKind::InvalidTopic(s.to_owned()))
+                }
             })
     }
 }
@@ -301,8 +311,7 @@ impl FromStr for Filter {
 impl Display for Level {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
-            Level::Normal(ref s) |
-            Level::Metadata(ref s) => f.write_str(s.as_str()),
+            Level::Normal(ref s) | Level::Metadata(ref s) => f.write_str(s.as_str()),
             Level::Blank => Ok(()),
             Level::SingleWildcard => f.write_char('+'),
             Level::MultiWildcard => f.write_char('#'),
@@ -331,8 +340,7 @@ impl Display for Filter {
 pub trait WriteTopicExt: io::Write {
     fn write_level(&mut self, level: &Level) -> io::Result<usize> {
         match *level {
-            Level::Normal(ref s) |
-            Level::Metadata(ref s) => self.write(s.as_str().as_bytes()),
+            Level::Normal(ref s) | Level::Metadata(ref s) => self.write(s.as_str().as_bytes()),
             Level::Blank => Ok(0),
             Level::SingleWildcard => self.write(b"+"),
             Level::MultiWildcard => self.write(b"#"),
@@ -436,47 +444,45 @@ mod tests {
 
     #[test]
     fn test_valid_topic() {
-        assert!(
-            Filter(vec![
-                normal!("sport"),
-                normal!("tennis"),
-                normal!("player1"),
-            ]).is_valid()
-        );
+        assert!(Filter(vec![
+            normal!("sport"),
+            normal!("tennis"),
+            normal!("player1"),
+        ])
+        .is_valid());
 
-        assert!(
-            Filter(vec![
-                Level::normal("sport").unwrap(),
-                Level::normal("tennis").unwrap(),
-                Level::MultiWildcard,
-            ]).is_valid()
-        );
-        assert!(
-            Filter(vec![
-                Level::metadata("$SYS").unwrap(),
-                Level::normal("tennis").unwrap(),
-                Level::MultiWildcard,
-            ]).is_valid()
-        );
+        assert!(Filter(vec![
+            Level::normal("sport").unwrap(),
+            Level::normal("tennis").unwrap(),
+            Level::MultiWildcard,
+        ])
+        .is_valid());
+        assert!(Filter(vec![
+            Level::metadata("$SYS").unwrap(),
+            Level::normal("tennis").unwrap(),
+            Level::MultiWildcard,
+        ])
+        .is_valid());
 
-        assert!(
-            Filter(vec![
-                Level::normal("sport").unwrap(),
-                Level::SingleWildcard,
-                Level::normal("player1").unwrap(),
-            ]).is_valid()
-        );
+        assert!(Filter(vec![
+            Level::normal("sport").unwrap(),
+            Level::SingleWildcard,
+            Level::normal("player1").unwrap(),
+        ])
+        .is_valid());
 
         assert!(!Filter(vec![
             Level::normal("sport").unwrap(),
             Level::MultiWildcard,
             Level::normal("player1").unwrap(),
-        ]).is_valid());
+        ])
+        .is_valid());
         assert!(!Filter(vec![
             Level::normal("sport").unwrap(),
             Level::metadata("$SYS").unwrap(),
             Level::normal("player1").unwrap(),
-        ]).is_valid());
+        ])
+        .is_valid());
     }
 
     #[test]
@@ -487,7 +493,8 @@ mod tests {
                 Level::normal("sport").unwrap(),
                 Level::normal("tennis").unwrap(),
                 Level::normal("player1").unwrap(),
-            ].into()
+            ]
+            .into()
         );
 
         assert_eq!(topic_filter!(""), Filter(vec![Level::Blank]));
@@ -512,7 +519,8 @@ mod tests {
                 Level::normal("sport").unwrap(),
                 Level::normal("tennis").unwrap(),
                 Level::MultiWildcard,
-            ].into()
+            ]
+            .into()
         );
 
         assert_eq!(topic_filter!("#"), vec![Level::MultiWildcard].into());
@@ -531,7 +539,8 @@ mod tests {
                 Level::SingleWildcard,
                 Level::normal("tennis").unwrap(),
                 Level::MultiWildcard,
-            ].into()
+            ]
+            .into()
         );
 
         assert_eq!(
@@ -540,7 +549,8 @@ mod tests {
                 Level::normal("sport").unwrap(),
                 Level::SingleWildcard,
                 Level::normal("player1").unwrap(),
-            ].into()
+            ]
+            .into()
         );
 
         assert!("sport+".parse::<Filter>().is_err());
@@ -553,7 +563,8 @@ mod tests {
             Level::SingleWildcard,
             Level::normal("tennis").unwrap(),
             Level::MultiWildcard,
-        ].into();
+        ]
+        .into();
 
         assert_eq!(v.write_topic(&t).unwrap(), 10);
         assert_eq!(v, b"+/tennis/#");
@@ -591,13 +602,9 @@ mod tests {
         assert!(!"/finance".match_topic(&"+".parse().unwrap()));
 
         assert!(!"$SYS".match_topic(&"#".parse().unwrap()));
-        assert!(!"$SYS/monitor/Clients".match_topic(
-            &"+/monitor/Clients".parse().unwrap(),
-        ));
+        assert!(!"$SYS/monitor/Clients".match_topic(&"+/monitor/Clients".parse().unwrap(),));
         assert!("$SYS/".match_topic(&"$SYS/#".parse().unwrap()));
-        assert!("$SYS/monitor/Clients".match_topic(
-            &"$SYS/monitor/+".parse().unwrap(),
-        ));
+        assert!("$SYS/monitor/Clients".match_topic(&"$SYS/monitor/+".parse().unwrap(),));
     }
 
     #[test]

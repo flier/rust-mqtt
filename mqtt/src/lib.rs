@@ -1,23 +1,20 @@
-#![cfg_attr(feature = "clippy", feature(plugin))]
-#![cfg_attr(feature = "clippy", plugin(clippy(conf_file = "../.clippy.toml")))]
-
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate error_chain;
 extern crate bytes;
 extern crate nom;
-extern crate slab;
 extern crate rotor;
+extern crate slab;
 
-extern crate mqtt_core as core;
+pub extern crate mqtt_core as core;
+pub extern crate mqtt_proto as proto;
 
 mod error;
 
-pub use core::*;
-pub mod transport;
-pub mod server;
 pub mod client;
+pub mod server;
+pub mod transport;
 
 /// TCP ports 1883 was registered with IANA for MQTT non TLS communication respectively.
 pub const TCP_PORT: u16 = 1883;
@@ -26,5 +23,7 @@ pub const SSL_PORT: u16 = 8883;
 
 #[macro_export]
 macro_rules! topic {
-    ($s:expr) => ($s.parse::<Topic>().unwrap());
+    ($s:expr) => {
+        $s.parse::<$crate::proto::Filter>().unwrap()
+    };
 }

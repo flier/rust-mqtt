@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use tokio_core::reactor::{Handle, Remote};
 use tokio_service::{NewService, Service};
 
-use server::{Authenticator, Conn, MockAuthenticator, Session, SessionProvider, TopicProvider,
-             shutdown};
+use server::{
+    shutdown, Authenticator, Conn, MockAuthenticator, Session, SessionProvider, TopicProvider,
+};
 
 pub struct Server<S, T, A> {
     remote: Remote,
@@ -41,10 +42,7 @@ where
 
 impl<'a, S, T, A> NewService for Server<S, T, A>
 where
-    S: SessionProvider<
-        Key = String,
-        Value = Arc<Mutex<Session<'a>>>,
-    >,
+    S: SessionProvider<Key = String, Value = Arc<Mutex<Session<'a>>>>,
     T: TopicProvider,
     A: Authenticator,
 {

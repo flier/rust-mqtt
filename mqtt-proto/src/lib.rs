@@ -6,13 +6,13 @@ extern crate log;
 #[macro_use]
 extern crate error_chain;
 extern crate bytes;
-extern crate void;
+extern crate itertools;
 extern crate nom;
+extern crate pwhash;
+extern crate serde;
 extern crate slab;
 extern crate time;
-extern crate pwhash;
-extern crate itertools;
-extern crate serde;
+extern crate void;
 #[macro_use]
 extern crate serde_derive;
 
@@ -31,8 +31,8 @@ extern crate matches;
 #[macro_use]
 extern crate lazy_static;
 
-pub mod errors;
 mod codec;
+pub mod errors;
 mod proto;
 #[macro_use]
 mod topic;

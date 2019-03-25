@@ -21,7 +21,7 @@ use tokio_proto::TcpServer;
 
 use mqtt::server::{InMemoryAuthenticator, InMemorySessionProvider, InMemoryTopicProvider, Server};
 
-error_chain!{
+error_chain! {
     links {
         MQTT(mqtt::errors::Error, mqtt::errors::ErrorKind);
     }
@@ -81,29 +81,31 @@ fn parse_cmdline() -> Result<Config> {
         users: matches
             .opt_strs("user")
             .into_iter()
-            .map(|s| if let Some(off) = s.find(':') {
-                let (username, password) = s.split_at(off);
-                (
-                    username.to_owned(),
-                    Some(password.as_bytes()[1..].to_owned()),
-                )
-            } else {
-                (s, None)
+            .map(|s| {
+                if let Some(off) = s.find(':') {
+                    let (username, password) = s.split_at(off);
+                    (
+                        username.to_owned(),
+                        Some(password.as_bytes()[1..].to_owned()),
+                    )
+                } else {
+                    (s, None)
+                }
             })
             .collect(),
     })
 }
 
 fn main() {
-    let _ = pretty_env_logger::init().expect("fail to initial logger");
+    pretty_env_logger::init();
 
     let cfg = parse_cmdline().expect("fail to parse command line");
 
     let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
     let topic_provider = InMemoryTopicProvider::default();
-    let authenticator = cfg.authenticator().map(|authenticator| {
-        Arc::new(Mutex::new(authenticator))
-    });
+    let authenticator = cfg
+        .authenticator()
+        .map(|authenticator| Arc::new(Mutex::new(authenticator)));
 
     let server = TcpServer::new(mqtt::MQTT::default(), cfg.addr);
 
