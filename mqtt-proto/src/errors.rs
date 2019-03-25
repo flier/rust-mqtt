@@ -1,57 +1,55 @@
-use std::io;
-use std::sync::{PoisonError, TryLockError};
+use std::error::Error as _;
 
-use futures::sync::mpsc::SendError;
+pub use failure::Error;
 
-error_chain! {
-    foreign_links {
-        Fmt(::std::fmt::Error);
-        Io(::std::io::Error);
-        Hash(::pwhash::error::Error);
-    }
+use crate::core::ConnectReturnCode;
 
-    errors {
-        ConnectFailed(code: ::core::ConnectReturnCode) {
-            description("connect failed")
-            display("connect failed, {:?}", code)
-        }
-        ProtocolViolation
-        ConnectionClosed
-        InvalidTopic(topic: String) {
-            description("invalid topic")
-            display("invalid topic, {}", topic)
-        }
-        InvalidPacketId
-        UnexpectedState
-        BadUserNameOrPassword
-        LockError(reason: String) {
-            description("lock failed")
-            display("lock failed, {}", reason)
-        }
-        SendError
+pub type Result<T> = ::std::result::Result<T, Error>;
+
+#[derive(Debug, Fail)]
+pub enum ErrorKind {
+    #[fail(display = "connect failed, {:?}", _0)]
+    ConnectFailed(ConnectReturnCode),
+
+    #[fail(display = "connection closed")]
+    ConnectionClosed,
+
+    #[fail(display = "protocol violation")]
+    ProtocolViolation,
+
+    #[fail(display = "invalid packet id")]
+    InvalidPacketId,
+
+    #[fail(display = "invalid topic name, {}", _0)]
+    InvalidTopic(String),
+
+    #[fail(display = "bad user name or password")]
+    BadUserNameOrPassword,
+
+    #[fail(display = "unexpected protocol state")]
+    UnexpectedState,
+
+    #[fail(display = "fail to lock, {}", _0)]
+    LockFailed(String),
+
+    #[fail(display = "fail to send to queue, {}", _0)]
+    MpscSendError(String),
+}
+
+impl<T> From<std::sync::PoisonError<T>> for ErrorKind {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        ErrorKind::LockFailed(err.description().to_owned())
     }
 }
 
-impl<T> From<PoisonError<T>> for Error {
-    fn from(err: PoisonError<T>) -> Self {
-        ErrorKind::LockError(err.to_string()).into()
+impl<T> From<std::sync::TryLockError<T>> for ErrorKind {
+    fn from(err: std::sync::TryLockError<T>) -> Self {
+        ErrorKind::LockFailed(err.description().to_owned())
     }
 }
 
-impl<T> From<TryLockError<T>> for Error {
-    fn from(err: TryLockError<T>) -> Self {
-        ErrorKind::LockError(err.to_string()).into()
-    }
-}
-
-impl<T> From<SendError<T>> for Error {
-    fn from(_: SendError<T>) -> Self {
-        ErrorKind::SendError.into()
-    }
-}
-
-impl From<Error> for io::Error {
-    fn from(err: Error) -> Self {
-        io::Error::new(io::ErrorKind::Other, err.to_string())
+impl<T> From<futures::sync::mpsc::SendError<T>> for ErrorKind {
+    fn from(err: futures::sync::mpsc::SendError<T>) -> Self {
+        ErrorKind::MpscSendError(format!("{:?}", err))
     }
 }

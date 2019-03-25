@@ -13,7 +13,7 @@ use rotor::{EarlyScope, GenericScope, Machine, Response, Scope};
 use rotor::{EventSet, PollOpt, Void};
 
 use crate::core::*;
-use crate::error::*;
+use crate::errors::*;
 
 pub trait Handler<'a> {
     fn on_received_packet(&mut self, packet: &Packet<'a>);

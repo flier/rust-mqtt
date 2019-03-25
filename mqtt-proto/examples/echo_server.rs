@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate error_chain;
-
 extern crate mqtt_proto as mqtt;
 
 use std::env;
@@ -9,28 +6,15 @@ use std::net::SocketAddr;
 use std::process;
 use std::sync::{Arc, Mutex};
 
+use failure::err_msg;
 use getopts::Options;
 
 use tokio_proto::TcpServer;
 
-use mqtt::server::{InMemoryAuthenticator, InMemorySessionProvider, InMemoryTopicProvider, Server};
-
-error_chain! {
-    links {
-        MQTT(mqtt::errors::Error, mqtt::errors::ErrorKind);
-    }
-    foreign_links {
-        IoError(::std::io::Error);
-        OptionParseFail(::getopts::Fail);
-        AddrParseError(::std::net::AddrParseError);
-    }
-    errors {
-        MissingArgument(name: String) {
-            description("missing required argument")
-            display("missing required argument, {}", name)
-        }
-    }
-}
+use mqtt::{
+    errors::Result,
+    server::{InMemoryAuthenticator, InMemorySessionProvider, InMemoryTopicProvider, Server},
+};
 
 struct Config {
     addr: SocketAddr,
@@ -70,7 +54,7 @@ fn parse_cmdline() -> Result<Config> {
     Ok(Config {
         addr: matches
             .opt_str("listen")
-            .ok_or_else(|| ErrorKind::MissingArgument("listen".to_owned()))?
+            .ok_or_else(|| err_msg("missed listen"))?
             .parse()?,
         users: matches
             .opt_strs("user")
@@ -103,12 +87,12 @@ fn main() {
 
     let server = TcpServer::new(mqtt::MQTT::default(), cfg.addr);
 
-    server.with_handle(move |handle| {
-        Server::with_authenticator(
-            handle,
-            Arc::clone(&session_provider),
-            topic_provider.clone(),
-            authenticator.clone(),
-        )
-    });
+    // server.with_handle(move |handle| {
+    //     Server::with_authenticator(
+    //         handle,
+    //         Arc::clone(&session_provider),
+    //         topic_provider.clone(),
+    //         authenticator.clone(),
+    //     )
+    // });
 }

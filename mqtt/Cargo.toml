@@ -12,7 +12,7 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
-error-chain = "0.12"
+failure = "0.1"
 bytes = "0.4"
 nom = "4.2"
 slab = "0.4"

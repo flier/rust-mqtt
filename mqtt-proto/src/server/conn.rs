@@ -6,7 +6,7 @@ use futures::{Future, IntoFuture};
 use tokio_service::Service;
 
 use crate::core::{ConnectReturnCode, Packet, QoS, SubscribeReturnCode};
-use crate::errors::{Error, ErrorKind, Result};
+use crate::errors::{Error, ErrorKind, ErrorKind::*, Result};
 use crate::server::{
     Authenticator, Connected, Session, SessionProvider, ShutdownSignal, State, TopicProvider,
 };
@@ -90,14 +90,14 @@ where
                                 State::Connected(connected),
                             )
                         }
-                        Err(Error(kind, _)) => {
-                            trace!("client connect failed, {:?}", kind);
+                        Err(err) => {
+                            trace!("client connect failed, {:?}", err);
 
                             (
                                 Some(Packet::ConnectAck {
                                     session_present: false,
-                                    return_code: match kind {
-                                        ErrorKind::ConnectFailed(code) => code,
+                                    return_code: match err.downcast_ref() {
+                                        Some(&ConnectFailed(code)) => code,
                                         _ => ConnectReturnCode::ServiceUnavailable,
                                     },
                                 }),
@@ -106,7 +106,7 @@ where
                         }
                     }
                 } else {
-                    bail!(ErrorKind::ProtocolViolation)
+                    return Err(ProtocolViolation.into());
                 }
             }
             State::Connected(connected) => {
@@ -122,7 +122,7 @@ where
                         payload,
                     } => {
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         session
                             .message_receiver
@@ -137,7 +137,7 @@ where
                     }
                     Packet::PublishAck { packet_id } => {
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         session
                             .message_sender
@@ -146,7 +146,7 @@ where
                     }
                     Packet::PublishReceived { packet_id } => {
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         session
                             .message_sender
@@ -155,7 +155,7 @@ where
                     }
                     Packet::PublishComplete { packet_id } => {
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         session
                             .message_sender
@@ -164,7 +164,7 @@ where
                     }
                     Packet::PublishRelease { packet_id } => {
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         session
                             .message_receiver
@@ -185,7 +185,9 @@ where
                                 .iter()
                                 .map(|&(ref filter, qos)| {
                                     let session = Arc::clone(&session);
-                                    let lock = session.try_lock().map_err(|err| err.into());
+                                    let lock = session
+                                        .try_lock()
+                                        .map_err(|err| ErrorKind::from(err).into());
 
                                     match lock
                                         .and_then(move |mut session| session.subscribe(filter, qos))
@@ -216,7 +218,7 @@ where
                         trace!("unsubscribe filters: {:?}", topic_filters);
 
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         for filter in topic_filters {
                             session.unsubscribe(&filter);
@@ -235,18 +237,18 @@ where
                         trace!("disconnect");
 
                         let session = connected.session();
-                        let mut session = session.lock()?;
+                        let mut session = session.lock().map_err(|err| ErrorKind::from(err))?;
 
                         session.set_last_will(None);
 
-                        bail!(ErrorKind::ConnectionClosed);
+                        return Err(ConnectionClosed.into());
                     }
-                    _ => bail!(ErrorKind::ProtocolViolation),
+                    _ => return Err(ProtocolViolation.into()),
                 };
 
                 (response, State::Connected(connected))
             }
-            State::Disconnected => bail!(ErrorKind::ProtocolViolation),
+            State::Disconnected => return Err(ProtocolViolation.into()),
         };
 
         self.state.set(next_state);
@@ -307,8 +309,13 @@ pub mod tests {
         // After a Network Connection is established by a Client to a Server,
         // the first Packet sent from the Client to the Server MUST be a CONNECT Packet [MQTT-3.1.0-1].
         assert_matches!(
-            new_test_conn().call(Packet::PingRequest).poll(),
-            Err(Error(ErrorKind::ProtocolViolation, _))
+            new_test_conn()
+                .call(Packet::PingRequest)
+                .poll()
+                .unwrap_err()
+                .downcast_ref()
+                .unwrap(),
+            &ProtocolViolation
         );
     }
 
@@ -425,8 +432,12 @@ pub mod tests {
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(
-            conn.call(Packet::Disconnect).poll(),
-            Err(Error(ErrorKind::ConnectionClosed, _))
+            conn.call(Packet::Disconnect)
+                .poll()
+                .unwrap_err()
+                .downcast_ref()
+                .unwrap(),
+            &ConnectionClosed
         );
 
         assert!(conn.connected().is_none());
@@ -454,8 +465,12 @@ pub mod tests {
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(
-            conn.call(Packet::Disconnect).poll(),
-            Err(Error(ErrorKind::ConnectionClosed, _))
+            conn.call(Packet::Disconnect)
+                .poll()
+                .expect_err("should return an error")
+                .downcast_ref()
+                .expect("the wrong type of error was returned"),
+            ConnectionClosed
         );
 
         let conn =
@@ -500,8 +515,12 @@ pub mod tests {
         //       as described in Section 3.1.2.5 [MQTT-3.14.4-3].
         //      SHOULD close the Network Connection if the Client has not already done so.
         assert_matches!(
-            conn.call(Packet::Disconnect).poll(),
-            Err(Error(ErrorKind::ConnectionClosed, _))
+            conn.call(Packet::Disconnect)
+                .poll()
+                .unwrap_err()
+                .downcast_ref()
+                .unwrap(),
+            &ConnectionClosed
         );
 
         let conn = new_test_conn_with_provider(session_provider, topic_provider.clone());
@@ -574,8 +593,11 @@ pub mod tests {
                 username: None,
                 password: None,
             })
-            .poll(),
-            Err(Error(ErrorKind::ProtocolViolation, _))
+            .poll()
+            .unwrap_err()
+            .downcast_ref()
+            .unwrap(),
+            &ProtocolViolation
         );
 
         assert!(conn.connected().is_none());

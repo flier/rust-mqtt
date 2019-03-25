@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
 extern crate bytes;
 extern crate nom;
 extern crate rotor;
@@ -10,8 +10,7 @@ extern crate slab;
 pub extern crate mqtt_core as core;
 pub extern crate mqtt_proto as proto;
 
-mod error;
-
+pub mod errors;
 pub mod client;
 pub mod server;
 pub mod transport;

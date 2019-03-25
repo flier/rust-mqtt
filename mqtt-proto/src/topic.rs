@@ -5,7 +5,7 @@ use std::iter::Iterator;
 use std::ops::{Deref, DerefMut, Div, DivAssign};
 use std::str::FromStr;
 
-use crate::errors::{Error, ErrorKind, Result};
+use crate::errors::{Error, ErrorKind::*, Result};
 
 fn is_metadata<T: AsRef<str>>(s: T) -> bool {
     s.as_ref().chars().nth(0) == Some('$')
@@ -28,40 +28,24 @@ impl Level {
         let s = s.as_ref();
 
         if s.contains(|c| c == '+' || c == '#') {
-            bail!(ErrorKind::InvalidTopic(format!(
-                "invalid normal level `{}` contains +|#",
-                s
-            ),));
+            Err(InvalidTopic(format!("invalid normal level `{}` contains +|#", s)).into())
+        } else if s.chars().nth(0) == Some('$') {
+            Err(InvalidTopic(format!("invalid normal level `{}` starts with $", s)).into())
+        } else {
+            Ok(Level::Normal(s.to_owned()))
         }
-
-        if s.chars().nth(0) == Some('$') {
-            bail!(ErrorKind::InvalidTopic(format!(
-                "invalid normal level `{}` starts with $",
-                s
-            ),))
-        }
-
-        Ok(Level::Normal(s.to_owned()))
     }
 
     pub fn metadata<T: AsRef<str>>(s: T) -> Result<Level> {
         let s = s.as_ref();
 
         if s.contains(|c| c == '+' || c == '#') {
-            bail!(ErrorKind::InvalidTopic(format!(
-                "invalid metadata level `{}` contains +|#",
-                s,
-            )));
+            Err(InvalidTopic(format!("invalid metadata level `{}` contains +|#", s,)).into())
+        } else if s.chars().nth(0) != Some('$') {
+            Err(InvalidTopic(format!("invalid metadata level `{}` not starts with $", s,)).into())
+        } else {
+            Ok(Level::Metadata(s.to_owned()))
         }
-
-        if s.chars().nth(0) != Some('$') {
-            bail!(ErrorKind::InvalidTopic(format!(
-                "invalid metadata level `{}` not starts with $",
-                s,
-            )));
-        }
-
-        Ok(Level::Metadata(s.to_owned()))
     }
 
     pub fn as_str(&self) -> Option<&str> {
@@ -271,9 +255,7 @@ impl FromStr for Level {
             "+" => Ok(Level::SingleWildcard),
             "#" => Ok(Level::MultiWildcard),
             "" => Ok(Level::Blank),
-            _ if s.contains(|c| c == '+' || c == '#') => {
-                bail!(ErrorKind::InvalidTopic(s.to_owned()))
-            }
+            _ if s.contains(|c| c == '+' || c == '#') => Err(InvalidTopic(s.to_owned()).into()),
             level => Ok(if level.as_bytes()[0] == b'$' {
                 Level::Metadata(s.into())
             } else {
@@ -302,7 +284,7 @@ impl FromStr for Filter {
                 if filter.is_valid() {
                     Ok(filter)
                 } else {
-                    bail!(ErrorKind::InvalidTopic(s.to_owned()))
+                    Err(InvalidTopic(s.to_owned()).into())
                 }
             })
     }

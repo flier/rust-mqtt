@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate log;
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
 
 use std::io::prelude::*;
 use std::mem;
@@ -20,28 +20,7 @@ use slab::Slab;
 use clap::{App, Arg};
 
 use mqtt::core::{read_packet, WritePacketExt};
-
-mod errors {
-    error_chain! {
-        types {
-            Error, ErrorKind, ResultExt, Result;
-        }
-
-        foreign_links {
-            Fmt(::std::fmt::Error);
-            Io(::std::io::Error) #[cfg(unix)];
-        }
-
-        errors {
-            InvalidAddress
-            InvalidState
-            InvalidToken
-            InvalidPacket(err: String)
-        }
-    }
-}
-
-use crate::errors::*;
+use mqtt::errors::*;
 
 const SERVER: Token = Token(0);
 
@@ -83,7 +62,7 @@ impl Server {
         if let Some(err) = last_err {
             bail!(err)
         } else {
-            bail!(ErrorKind::InvalidAddress)
+            bail!("invalid address")
         }
     }
 
@@ -113,7 +92,7 @@ impl Server {
 
                                 conn.is_closed()
                             }
-                            _ => bail!(ErrorKind::InvalidToken),
+                            _ => bail!("invalid token"),
                         } {
                             self.conns.remove(key);
                         }
@@ -215,11 +194,7 @@ impl State {
                 debug!("packet incomplete, read again");
             }
             Err(err) => {
-                warn!("fail to parse packet, {:?}", err);
-
-                bail!(ErrorKind::InvalidPacket(
-                    err.into_error_kind().description().to_owned()
-                ));
+                bail!("invalid packet, {:?}", err);
             }
         }
 
@@ -400,13 +375,11 @@ fn main() {
     if let Err(ref err) = server.serve(&poll) {
         error!("error: {}", err);
 
-        for err in err.iter().skip(1) {
+        for err in err.iter_causes().skip(1) {
             error!("caused by: {}", err);
         }
 
-        if let Some(backtrace) = err.backtrace() {
-            warn!("backtrace: {:?}", backtrace);
-        }
+        debug!("backtrace: {:?}", err.backtrace());
 
         exit(-1);
     }

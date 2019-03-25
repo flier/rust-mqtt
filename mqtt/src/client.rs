@@ -5,7 +5,7 @@ use std::time::Duration;
 use slab::Slab;
 
 use crate::core::*;
-use crate::error::*;
+use crate::errors::*;
 use crate::transport::{self, Transport};
 
 #[derive(Debug, PartialEq, Clone)]

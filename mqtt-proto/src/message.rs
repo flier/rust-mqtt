@@ -6,7 +6,7 @@ use time::now;
 use slab::Slab;
 
 use crate::core::{PacketId, QoS};
-use crate::errors::{ErrorKind, Result};
+use crate::errors::{ErrorKind::*, Result};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<'a> {
@@ -64,16 +64,16 @@ impl<'a> MessageSender<'a> {
         let key = packet_id as usize - 1;
 
         if !self.messages.contains(key) {
-            bail!(ErrorKind::InvalidPacketId)
-        }
+            Err(InvalidPacketId.into())
+        } else {
+            match self.messages.remove(key) {
+                SendState::Sending(Message { .. }) => {
+                    trace!("message #{} acked", packet_id);
 
-        match self.messages.remove(key) {
-            SendState::Sending(Message { .. }) => {
-                trace!("message #{} acked", packet_id);
-
-                Ok(packet_id)
+                    Ok(packet_id)
+                }
+                _ => Err(UnexpectedState.into()),
             }
-            _ => bail!(ErrorKind::UnexpectedState),
         }
     }
 
@@ -88,8 +88,8 @@ impl<'a> MessageSender<'a> {
 
                 Ok(packet_id)
             }
-            None => bail!(ErrorKind::InvalidPacketId),
-            _ => bail!(ErrorKind::UnexpectedState),
+            None => Err(InvalidPacketId.into()),
+            _ => Err(UnexpectedState.into()),
         }
     }
 
@@ -104,8 +104,8 @@ impl<'a> MessageSender<'a> {
 
                 Ok(packet_id)
             }
-            None => bail!(ErrorKind::InvalidPacketId),
-            _ => bail!(ErrorKind::UnexpectedState),
+            None => Err(InvalidPacketId.into()),
+            _ => Err(UnexpectedState.into()),
         }
     }
 }
@@ -155,21 +155,21 @@ impl<'a> MessageReceiver<'a> {
 
                 Ok(packet_id)
             }
-            _ => bail!(ErrorKind::ProtocolViolation),
+            _ => Err(ProtocolViolation.into()),
         }
     }
 
     pub fn on_publish_release(&mut self, packet_id: PacketId) -> Result<Message> {
         self.messages
             .remove(&packet_id)
-            .ok_or_else(|| ErrorKind::InvalidPacketId.into())
+            .ok_or_else(|| InvalidPacketId.into())
     }
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::errors::Error;
+    use crate::errors::ErrorKind::InvalidPacketId;
 
     #[test]
     fn test_message_sender() {
@@ -199,16 +199,31 @@ pub mod tests {
         assert!(sender.get(bar as usize - 1).is_none());
 
         assert_matches!(
-            sender.on_publish_ack(foo),
-            Err(Error(ErrorKind::InvalidPacketId, _))
+            sender
+                .on_publish_ack(foo)
+                .err()
+                .unwrap()
+                .downcast_ref()
+                .unwrap(),
+            &InvalidPacketId
         );
         assert_matches!(
-            sender.on_publish_received(foo),
-            Err(Error(ErrorKind::InvalidPacketId, _))
+            sender
+                .on_publish_received(foo)
+                .err()
+                .unwrap()
+                .downcast_ref()
+                .unwrap(),
+            &InvalidPacketId
         );
         assert_matches!(
-            sender.on_publish_complete(foo),
-            Err(Error(ErrorKind::InvalidPacketId, _))
+            sender
+                .on_publish_complete(foo)
+                .err()
+                .unwrap()
+                .downcast_ref()
+                .unwrap(),
+            &InvalidPacketId
         );
     }
 
@@ -257,8 +272,12 @@ pub mod tests {
         assert_matches!(receiver.get(&456), Some(&Message { .. }));
 
         assert_matches!(
-            receiver.on_publish_release(123),
-            Err(Error(ErrorKind::InvalidPacketId, _))
+            receiver
+                .on_publish_release(123)
+                .unwrap_err()
+                .downcast_ref()
+                .unwrap(),
+            &InvalidPacketId
         );
         assert_matches!(receiver.on_publish_release(456), Ok(Message { .. }));
 

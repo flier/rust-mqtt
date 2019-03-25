@@ -3,8 +3,14 @@ use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::core::{ClientId, ConnectReturnCode, LastWill, Protocol};
-use crate::errors::{ErrorKind, Result};
+use failure::AsFail;
+
+use crate::core::{
+    ClientId,
+    ConnectReturnCode::{BadUserNameOrPassword, IdentifierRejected, UnacceptableProtocolVersion},
+    LastWill, Protocol,
+};
+use crate::errors::{ErrorKind, ErrorKind::ConnectFailed, Result};
 use crate::server::{Authenticator, Session, SessionProvider, TopicProvider};
 
 #[derive(Clone, Debug)]
@@ -81,15 +87,11 @@ where
         // (unacceptable protocol level) and then disconnect the Client if the Protocol Level
         // is not supported by the Server [MQTT-3.1.2-2].
         if protocol != Protocol::default() {
-            bail!(ErrorKind::ConnectFailed(
-                ConnectReturnCode::UnacceptableProtocolVersion,
-            ))
+            return Err(ConnectFailed(UnacceptableProtocolVersion).into());
         }
 
         if !ClientId::is_valid(&client_id) {
-            bail!(ErrorKind::ConnectFailed(
-                ConnectReturnCode::IdentifierRejected,
-            ))
+            return Err(ConnectFailed(IdentifierRejected).into());
         }
 
         if !clean_session {
@@ -98,7 +100,12 @@ where
             // If there is no Session associated with the Client identifier the Server MUST create a new Session.
             // The Client and Server MUST store the Session after the Client and Server are disconnected [MQTT-3.1.2-4]. After the disconnection of a Session that had CleanSession set to 0, the Server MUST store further QoS 1 and QoS 2 messages that match any subscriptions that the client had at the time of disconnection as part of the Session state [MQTT-3.1.2-5].
 
-            if let Some(session) = self.session_provider.lock()?.get(&client_id) {
+            if let Some(session) = self
+                .session_provider
+                .lock()
+                .map_err(ErrorKind::from)?
+                .get(&client_id)
+            {
                 debug!("resume session with client_id #{}", client_id);
 
                 // If the ClientId represents a Client already connected to the Server
@@ -106,7 +113,7 @@ where
 
                 // TODO
                 {
-                    let mut s = session.lock()?;
+                    let mut s = session.lock().map_err(ErrorKind::from)?;
 
                     s.set_keep_alive(keep_alive);
                     s.set_last_will(last_will);
@@ -124,12 +131,15 @@ where
             // If CleanSession is set to 1, the Client and Server MUST discard any previous Session and start a new one.
             // This Session lasts as long as the Network Connection.
             // State data associated with this Session MUST NOT be reused in any subsequent Session [MQTT-3.1.2-6].
-            self.session_provider.lock()?.remove(&client_id);
+            self.session_provider
+                .lock()
+                .map_err(ErrorKind::from)?
+                .remove(&client_id);
         }
 
         if let Some(ref authenticator) = self.authenticator {
             if let Some(username) = username {
-                match authenticator.lock()?.authenticate(
+                match authenticator.lock().map_err(ErrorKind::from)?.authenticate(
                     client_id.as_str(),
                     username.as_ref(),
                     password
@@ -141,19 +151,15 @@ where
                         info!("user `{}` login as client: {}", username, client_id);
                     }
                     Err(err) => {
-                        debug!("user `{}` login failed, {}", username, err);
+                        debug!("user `{}` login failed, {:?}", username, err.as_fail());
 
-                        bail!(ErrorKind::ConnectFailed(
-                            ConnectReturnCode::BadUserNameOrPassword,
-                        ))
+                        return Err(ConnectFailed(BadUserNameOrPassword).into());
                     }
                 }
             } else {
                 debug!("missing username/password from client: {}", client_id);
 
-                bail!(ErrorKind::ConnectFailed(
-                    ConnectReturnCode::BadUserNameOrPassword,
-                ))
+                return Err(ConnectFailed(BadUserNameOrPassword).into());
             }
         }
 
@@ -164,7 +170,8 @@ where
         )));
 
         self.session_provider
-            .lock()?
+            .lock()
+            .map_err(ErrorKind::from)?
             .insert(client_id, Arc::clone(&session));
 
         Ok(Connected {
@@ -192,7 +199,10 @@ impl<'a> Connected<'a> {
         // MUST discard any Will Message associated with the current connection without publishing it,
         // as described in Section 3.1.2.5 [MQTT-3.14.4-3].
 
-        self.session.lock()?.set_last_will(None);
+        self.session
+            .lock()
+            .map_err(ErrorKind::from)?
+            .set_last_will(None);
 
         Ok(State::Disconnected)
     }

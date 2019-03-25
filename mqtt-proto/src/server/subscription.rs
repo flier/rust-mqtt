@@ -7,7 +7,7 @@ use slab::Slab;
 use futures::sync::mpsc::{unbounded, SendError, UnboundedReceiver, UnboundedSender};
 use futures::{Poll, Sink, StartSend, Stream};
 
-use crate::errors::Result;
+use crate::errors::{ErrorKind, Result};
 use crate::topic::{Filter, Level};
 
 type SubscriberIdx = usize;
@@ -25,9 +25,9 @@ impl<T> Subscriber<T> {
     }
 
     pub fn send(&self, msg: T) -> Result<()> {
-        self.sender.unbounded_send(msg)?;
-
-        Ok(())
+        self.sender
+            .unbounded_send(msg)
+            .map_err(|err| ErrorKind::from(err).into())
     }
 }
 
@@ -103,11 +103,19 @@ impl<T> Default for Subscription<T> {
 
 impl<T> Subscription<T> {
     pub fn subscribe<F: Into<Filter>>(&mut self, filter: F) -> Result<Subscribed<T>> {
-        Ok(self.inner.lock()?.subscribe(filter))
+        Ok(self
+            .inner
+            .lock()
+            .map_err(ErrorKind::from)?
+            .subscribe(filter))
     }
 
     pub fn unsubscribe(&mut self, subscribed: Subscribed<T>) -> Result<Arc<Subscriber<T>>> {
-        Ok(self.inner.lock()?.unsubscribe(subscribed))
+        Ok(self
+            .inner
+            .lock()
+            .map_err(ErrorKind::from)?
+            .unsubscribe(subscribed))
     }
 
     pub fn topic_subscribers<S: AsRef<str>>(&self, topic: S) -> Result<TopicSubscribers<T>> {
@@ -116,7 +124,7 @@ impl<T> Subscription<T> {
             _ => Vec::new(),
         };
 
-        let root = self.inner.lock()?.root;
+        let root = self.inner.lock().map_err(ErrorKind::from)?.root;
 
         Ok(TopicSubscribers {
             inner: Arc::clone(&self.inner),
@@ -126,13 +134,13 @@ impl<T> Subscription<T> {
     }
 
     pub fn is_empty(&self) -> Result<bool> {
-        let inner = self.inner.lock()?;
+        let inner = self.inner.lock().map_err(ErrorKind::from)?;
 
         Ok(inner.is_node_empty(inner.root))
     }
 
     pub fn purge(&mut self) -> Result<()> {
-        let mut inner = self.inner.lock()?;
+        let mut inner = self.inner.lock().map_err(ErrorKind::from)?;
 
         let root = inner.root;
 

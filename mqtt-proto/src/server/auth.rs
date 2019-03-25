@@ -1,16 +1,16 @@
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::iter::{FromIterator, IntoIterator};
 use std::result::Result as StdResult;
 use std::str;
 
+use failure::AsFail;
 use pwhash::bcrypt;
 
-use crate::errors::{Error, ErrorKind, Result};
+use crate::errors::{Error, ErrorKind::*, Result};
 
 pub trait Authenticator: Clone {
     type Profile;
-    type Error: StdError;
+    type Error: AsFail;
 
     fn authenticate<'a>(
         &mut self,
@@ -82,7 +82,7 @@ impl Authenticator for InMemoryAuthenticator {
         {
             Ok(())
         } else {
-            bail!(ErrorKind::BadUserNameOrPassword)
+            Err(BadUserNameOrPassword.into())
         }
     }
 }
@@ -106,6 +106,7 @@ impl Authenticator for MockAuthenticator {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::errors::ErrorKind;
 
     #[test]
     fn test_in_memory_authenticator() {
@@ -114,8 +115,11 @@ pub mod tests {
         assert!(auth.is_empty());
 
         assert_matches!(
-            auth.authenticate("client", "user", Some(&b"pass"[..])),
-            Err(Error(ErrorKind::BadUserNameOrPassword, _))
+            auth.authenticate("client", "user", Some(&b"pass"[..]))
+                .unwrap_err()
+                .downcast_ref()
+                .unwrap(),
+            &ErrorKind::BadUserNameOrPassword
         );
 
         assert_eq!(
