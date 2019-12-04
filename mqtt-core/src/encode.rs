@@ -1,506 +1,510 @@
-use std::io::{self, Error, ErrorKind, Result};
+use core::mem;
 
-use byteorder::{BigEndian, WriteBytesExt};
+use bytes::BufMut;
 
 use crate::packet::*;
-use crate::proto::*;
 
-pub const MAX_VARIABLE_LENGTH: usize = 0x0fff_ffff; // 0xFF,0xFF,0xFF,0x7F
+pub const LENGTH_FIELD_SIZE: usize = mem::size_of::<u16>();
 
-pub trait WritePacketHelper: io::Write {
-    #[inline]
-    fn write_fixed_header(&mut self, packet: &Packet) -> Result<usize> {
-        let content_size = self.calc_content_size(packet);
-
-        debug!(
-            "write FixedHeader {{ type={:?}, flags={}, remaining_length={} }} ",
-            packet.packet_type(),
-            packet.packet_flags(),
-            content_size
-        );
-
-        Ok(
-            self.write(&[((packet.packet_type() as u8) << 4) | packet.packet_flags()])?
-                + self.write_variable_length(content_size)?,
-        )
+impl Packet<'_> {
+    pub fn write_to<T: BufMut>(&self, buf: &mut T) {
+        WriteTo::write_to(self, buf);
     }
 
-    fn calc_content_size(&mut self, packet: &Packet) -> usize {
-        match *packet {
-            Packet::Connect {
-                ref last_will,
-                ref client_id,
-                ref username,
-                ref password,
-                ..
-            } => {
-                // Protocol Name + Protocol Level + Connect Flags + Keep Alive
-                let mut n = 2 + 4 + 1 + 1 + 2;
-
-                // Client Id
-                n += 2 + client_id.len();
-
-                // Will Topic + Will Message
-                if let Some(LastWill {
-                                 ref topic,
-                                 ref message,
-                                 ..
-                             }) = *last_will
-                {
-                    n += 2 + topic.len() + 2 + message.len();
-                }
-
-                if let Some(s) = username.as_ref() {
-                    n += 2 + s.len();
-                }
-
-                if let Some(s) = password.as_ref() {
-                    n += 2 + s.len();
-                }
-
-                n
-            }
-
-            Packet::Publish {
-                ref topic,
-                packet_id,
-                ref payload,
-                ..
-            } => {
-                // Topic + Packet Id + Payload
-                2 + topic.len() + packet_id.map_or(0, |_| 2) + payload.len()
-            }
-
-            Packet::ConnectAck { .. } | // Flags + Return Code
-            Packet::PublishAck { .. } |
-            Packet::PublishReceived { .. } |
-            Packet::PublishRelease { .. } |
-            Packet::PublishComplete { .. } |
-            Packet::UnsubscribeAck { .. } => 2, // Packet Id
-
-            Packet::Subscribe { ref topic_filters, .. } => {
-                2 +
-                    topic_filters.iter().fold(0, |acc, &(ref filter, _)| {
-                        acc + 2 + filter.len() + 1
-                    })
-            }
-
-            Packet::SubscribeAck { ref status, .. } => 2 + status.len(),
-
-            Packet::Unsubscribe { ref topic_filters, .. } => {
-                2 +
-                    topic_filters.iter().fold(0, |acc,  filter| {
-                        acc + 2 + filter.len()
-                    })
-            }
-
-            Packet::PingRequest | Packet::PingResponse | Packet::Disconnect => 0,
+    fn fixed_header(&self) -> FixedHeader {
+        FixedHeader {
+            packet_type: self.packet_type(),
+            packet_flags: self.packet_flags(),
+            remaining_length: self.remaining_length(),
         }
     }
 
-    fn write_content(&mut self, packet: &Packet) -> Result<usize> {
-        let mut n = 0;
+    pub fn packet_type(&self) -> Type {
+        match *self {
+            Packet::Connect(_) => Type::CONNECT,
+            Packet::ConnectAck(_) => Type::CONNACK,
+            Packet::Publish(_) => Type::PUBLISH,
+            Packet::PublishAck(_) => Type::PUBACK,
+            Packet::PublishReceived(_) => Type::PUBREC,
+            Packet::PublishRelease(_) => Type::PUBREL,
+            Packet::PublishComplete(_) => Type::PUBCOMP,
+            Packet::Subscribe(_) => Type::SUBSCRIBE,
+            Packet::SubscribeAck(_) => Type::SUBACK,
+            Packet::Unsubscribe(_) => Type::UNSUBSCRIBE,
+            Packet::UnsubscribeAck(_) => Type::UNSUBACK,
+            Packet::Ping => Type::PINGREQ,
+            Packet::Pong => Type::PINGRESP,
+            Packet::Disconnect => Type::DISCONNECT,
+        }
+    }
 
-        match *packet {
-            Packet::Connect {
-                protocol,
-                clean_session,
-                keep_alive,
-                ref last_will,
-                ref client_id,
-                ref username,
-                ref password,
-            } => {
-                n += self.write_utf8_str(protocol.name())?;
+    fn packet_flags(&self) -> u8 {
+        match self {
+            Packet::Publish(ref publish) => publish.flags().bits(),
+            Packet::PublishRelease(_) | Packet::Subscribe(_) | Packet::Unsubscribe(_) => 0x02,
+            _ => 0,
+        }
+    }
 
-                let mut flags = ConnectFlags::empty();
+    fn remaining_length(&self) -> usize {
+        match self {
+            Packet::Connect(ref connect) => connect.size(),
+            Packet::ConnectAck(ref connect_ack) => connect_ack.size(),
+            Packet::Publish(ref publish) => publish.size(),
+            Packet::PublishAck(ref publish_ack) => publish_ack.size(),
+            Packet::PublishReceived(ref publish_received) => publish_received.size(),
+            Packet::PublishRelease(ref publish_release) => publish_release.size(),
+            Packet::PublishComplete(ref publish_complete) => publish_complete.size(),
+            Packet::Subscribe(ref subscribe) => subscribe.size(),
+            Packet::SubscribeAck(ref subscribe_ack) => subscribe_ack.size(),
+            Packet::Unsubscribe(ref unsubscribe) => unsubscribe.size(),
+            Packet::UnsubscribeAck(ref unsubscribe_ack) => unsubscribe_ack.size(),
+            Packet::Ping | Packet::Pong | Packet::Disconnect => 0,
+        }
+    }
+}
 
-                if username.is_some() {
-                    flags |= ConnectFlags::USERNAME;
-                }
-                if password.is_some() {
-                    flags |= ConnectFlags::PASSWORD;
-                }
+trait BufMutExt: BufMut {
+    fn put_str(&mut self, s: &str) {
+        self.put_bytes(s.as_bytes())
+    }
 
-                if let Some(LastWill { qos, retain, .. }) = *last_will {
-                    flags |= ConnectFlags::WILL;
+    fn put_bytes(&mut self, s: &[u8]) {
+        self.put_u16(s.len() as u16);
+        self.put_slice(s)
+    }
 
-                    if retain {
-                        flags |= ConnectFlags::WILL_RETAIN;
-                    }
-
-                    let b: u8 = qos.into();
-
-                    flags |= ConnectFlags::from_bits_truncate(b << WILL_QOS_SHIFT);
-                }
-
-                if clean_session {
-                    flags |= ConnectFlags::CLEAN_SESSION;
-                }
-
-                n += self.write(&[protocol.level(), flags.bits()])?;
-
-                self.write_u16::<BigEndian>(keep_alive)?;
-                n += 2;
-
-                n += self.write_utf8_str(client_id)?;
-
-                if let Some(LastWill {
-                    ref topic,
-                    ref message,
-                    ..
-                }) = *last_will
-                {
-                    n += self.write_utf8_str(topic)?;
-                    n += self.write_fixed_length_bytes(message)?;
-                }
-
-                if let Some(s) = username.as_ref() {
-                    n += self.write_utf8_str(s)?;
-                }
-
-                if let Some(s) = password.as_ref() {
-                    n += self.write_fixed_length_bytes(s)?;
-                }
+    fn put_varint(&mut self, mut n: usize) {
+        loop {
+            let b = (n % 0x80) as u8;
+            n >>= 7;
+            if n > 0 {
+                self.put_u8(0x80 | b);
+            } else {
+                self.put_u8(b);
+                break;
             }
+        }
+    }
+}
 
-            Packet::ConnectAck {
-                session_present,
-                return_code,
-            } => {
-                n += self.write(&[
-                    if session_present { 0x01 } else { 0x00 },
-                    return_code.into(),
-                ])?;
+impl<T: BufMut> BufMutExt for T {}
+
+trait WriteTo {
+    fn size(&self) -> usize;
+
+    fn write_to<T: BufMut>(&self, buf: &mut T);
+}
+
+impl WriteTo for Packet<'_> {
+    fn size(&self) -> usize {
+        let fixed_header = self.fixed_header();
+        fixed_header.size() + fixed_header.remaining_length
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        self.fixed_header().write_to(buf);
+
+        match self {
+            Packet::Connect(ref connect) => connect.write_to(buf),
+            Packet::ConnectAck(ref connect_ack) => connect_ack.write_to(buf),
+            Packet::Publish(ref publish) => publish.write_to(buf),
+            Packet::PublishAck(ref publish_ack) => publish_ack.write_to(buf),
+            Packet::PublishReceived(ref publish_received) => publish_received.write_to(buf),
+            Packet::PublishRelease(ref publish_release) => publish_release.write_to(buf),
+            Packet::PublishComplete(ref publish_complete) => publish_complete.write_to(buf),
+            Packet::Subscribe(ref subscribe) => subscribe.write_to(buf),
+            Packet::SubscribeAck(ref subscribe_ack) => subscribe_ack.write_to(buf),
+            Packet::Unsubscribe(ref unsubscribe) => unsubscribe.write_to(buf),
+            Packet::UnsubscribeAck(ref unsubscribe_ack) => unsubscribe_ack.write_to(buf),
+            Packet::Ping | Packet::Pong | Packet::Disconnect => {}
+        }
+    }
+}
+
+impl WriteTo for FixedHeader {
+    fn size(&self) -> usize {
+        mem::size_of::<u8>() // packet_type + packet_flags
+            + match self.remaining_length {
+                n if n <= 127 => 1,         // (0x7F)
+                n if n <= 16_383 => 2,      // (0xFF, 0x7F)
+                n if n <= 2_097_151 => 3,   // (0xFF, 0xFF, 0x7F)
+                n if n <= 268_435_455 => 4, // (0xFF, 0xFF, 0xFF, 0x7F)
+                _ => panic!("remaining length {} too large", self.remaining_length),
             }
+    }
 
-            Packet::Publish {
-                qos,
-                ref topic,
-                packet_id,
-                ref payload,
-                ..
-            } => {
-                n += self.write_utf8_str(topic)?;
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u8(((self.packet_type as u8) << 4) + self.packet_flags);
+        buf.put_varint(self.remaining_length);
+    }
+}
 
-                if qos == QoS::AtLeastOnce || qos == QoS::ExactlyOnce {
-                    self.write_u16::<BigEndian>(packet_id.unwrap())?;
+impl WriteTo for Connect<'_> {
+    fn size(&self) -> usize {
+        PROTOCOL_NAME.len()
+            + mem::size_of::<u8>()                      // protocol_level
+            + mem::size_of::<ConnectFlags>()            // flags
+            + mem::size_of::<u16>()                     // keep_alive
+            + LENGTH_FIELD_SIZE + self.client_id.len()  // client_id
+            + self.last_will.as_ref().map_or(0, |will| {
+                LENGTH_FIELD_SIZE + will.topic.len() + LENGTH_FIELD_SIZE + will.message.len()
+            })
+            + self.username.map_or(0, |s| LENGTH_FIELD_SIZE + s.len())
+            + self.password.map_or(0, |s| LENGTH_FIELD_SIZE + s.len())
+    }
 
-                    n += 2;
-                }
-
-                n += self.write(payload)?;
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        let mut flags = ConnectFlags::empty();
+        if let Some(ref will) = self.last_will {
+            flags.remove(ConnectFlags::WILL_QOS);
+            flags |= ConnectFlags::LAST_WILL | will.qos.into();
+            if will.retain {
+                flags.insert(ConnectFlags::WILL_RETAIN);
+            } else {
+                flags.remove(ConnectFlags::WILL_RETAIN);
             }
-
-            Packet::PublishAck { packet_id }
-            | Packet::PublishReceived { packet_id }
-            | Packet::PublishRelease { packet_id }
-            | Packet::PublishComplete { packet_id }
-            | Packet::UnsubscribeAck { packet_id } => {
-                self.write_u16::<BigEndian>(packet_id)?;
-
-                n += 2;
-            }
-
-            Packet::Subscribe {
-                packet_id,
-                ref topic_filters,
-            } => {
-                self.write_u16::<BigEndian>(packet_id)?;
-
-                n += 2;
-
-                for &(ref filter, qos) in topic_filters {
-                    n += self.write_utf8_str(filter)? + self.write(&[qos as u8])?;
-                }
-            }
-
-            Packet::SubscribeAck {
-                packet_id,
-                ref status,
-            } => {
-                self.write_u16::<BigEndian>(packet_id)?;
-
-                n += 2;
-
-                let buf: Vec<u8> = status
-                    .iter()
-                    .map(|s| {
-                        if let SubscribeReturnCode::Success(qos) = *s {
-                            qos.into()
-                        } else {
-                            0x80
-                        }
-                    })
-                    .collect();
-
-                n += self.write(&buf)?;
-            }
-
-            Packet::Unsubscribe {
-                packet_id,
-                ref topic_filters,
-            } => {
-                self.write_u16::<BigEndian>(packet_id)?;
-
-                n += 2;
-
-                for filter in topic_filters {
-                    n += self.write_utf8_str(filter)?;
-                }
-            }
-
-            Packet::PingRequest | Packet::PingResponse | Packet::Disconnect => {}
+        }
+        if self.username.is_some() {
+            flags |= ConnectFlags::USERNAME;
+        }
+        if self.password.is_some() {
+            flags |= ConnectFlags::PASSWORD;
+        }
+        if self.clean_session {
+            flags |= ConnectFlags::CLEAN_SESSION;
         }
 
-        Ok(n)
+        buf.put_slice(PROTOCOL_NAME);
+        buf.put_u8(PROTOCOL_LEVEL);
+        buf.put_u8(flags.bits());
+        buf.put_u16(self.keep_alive);
+        buf.put_str(self.client_id);
+        if let Some(ref will) = self.last_will {
+            buf.put_str(will.topic);
+            buf.put_bytes(will.message);
+        }
+        if let Some(ref username) = self.username {
+            buf.put_str(username);
+        }
+        if let Some(ref password) = self.password {
+            buf.put_bytes(password);
+        }
+    }
+}
+
+impl WriteTo for ConnectAck {
+    fn size(&self) -> usize {
+        mem::size_of::<ConnectAckFlags>() + mem::size_of::<ConnectReturnCode>()
     }
 
-    #[inline]
-    fn write_utf8_str(&mut self, s: &str) -> Result<usize> {
-        self.write_u16::<BigEndian>(s.len() as u16)?;
-
-        Ok(2 + self.write(s.as_bytes())?)
-    }
-
-    #[inline]
-    fn write_fixed_length_bytes(&mut self, s: &[u8]) -> Result<usize> {
-        self.write_u16::<BigEndian>(s.len() as u16)?;
-
-        Ok(2 + self.write(s)?)
-    }
-
-    #[inline]
-    fn write_variable_length(&mut self, size: usize) -> Result<usize> {
-        if size > MAX_VARIABLE_LENGTH {
-            Err(Error::new(ErrorKind::Other, "out of range"))
-        } else if size < 128 {
-            self.write(&[size as u8])
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u8(if self.session_present {
+            ConnectAckFlags::SESSION_PRESENT.bits()
         } else {
-            let mut v = Vec::new();
-            let mut s = size;
+            0
+        });
+        buf.put_u8(self.return_code as u8);
+    }
+}
 
-            while s > 0 {
-                let mut b = (s % 128) as u8;
+impl WriteTo for Publish<'_> {
+    fn size(&self) -> usize {
+        LENGTH_FIELD_SIZE
+            + self.topic.len()
+            + self.packet_id.map_or(0, |_| mem::size_of::<PacketId>())
+            + self.payload.len()
+    }
 
-                s >>= 7;
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_str(self.topic);
+        if let Some(packet_id) = self.packet_id {
+            buf.put_u16(packet_id);
+        }
+        buf.put_slice(self.payload)
+    }
+}
 
-                if s > 0 {
-                    b |= 0x80;
-                }
+impl WriteTo for PublishAck {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+    }
 
-                v.push(b);
-            }
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+    }
+}
 
-            debug!("write variable length {} in {} bytes", size, v.len());
+impl WriteTo for PublishReceived {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+    }
 
-            self.write(&v)
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+    }
+}
+
+impl WriteTo for PublishRelease {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+    }
+}
+
+impl WriteTo for PublishComplete {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+    }
+}
+
+impl WriteTo for Subscribe<'_> {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+            + self
+                .subscriptions
+                .iter()
+                .map(|(topic_filter, _)| {
+                    LENGTH_FIELD_SIZE + topic_filter.len() + mem::size_of::<QoS>()
+                })
+                .sum::<usize>()
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+
+        for &(topic_filter, qos) in &self.subscriptions {
+            buf.put_str(topic_filter);
+            buf.put_u8(qos as u8)
         }
     }
 }
 
-/// Extends `Write` with methods for writing packet.
-///
-/// ```
-/// use mqtt_core::{WritePacketExt, Packet};
-///
-/// let mut v = Vec::new();
-/// let p = Packet::PingResponse;
-///
-/// assert_eq!(v.write_packet(&p).unwrap(), 2);
-/// assert_eq!(v, b"\xd0\x00");
-/// ```
-pub trait WritePacketExt: io::Write {
-    #[inline]
-    /// Writes packet to the underlying writer.
-    fn write_packet(&mut self, packet: &Packet) -> Result<usize> {
-        Ok(self.write_fixed_header(packet)? + self.write_content(packet)?)
+impl WriteTo for SubscribeAck {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+            + mem::size_of::<SubscribeReturnCode>() * self.status.iter().count()
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+
+        for &return_code in &self.status {
+            buf.put_u8(return_code.into())
+        }
     }
 }
 
-impl<W: io::Write + ?Sized> WritePacketHelper for W {}
-impl<W: io::Write + ?Sized> WritePacketExt for W {}
+impl WriteTo for Unsubscribe<'_> {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+            + self
+                .topic_filters
+                .iter()
+                .map(|topic_filter| LENGTH_FIELD_SIZE + topic_filter.len())
+                .sum::<usize>()
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+
+        for &topic_filter in &self.topic_filters {
+            buf.put_str(topic_filter);
+        }
+    }
+}
+
+impl WriteTo for UnsubscribeAck {
+    fn size(&self) -> usize {
+        mem::size_of::<PacketId>()
+    }
+
+    fn write_to<T: BufMut>(&self, buf: &mut T) {
+        buf.put_u16(self.packet_id);
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
     use super::*;
-    use crate::decode::*;
 
     #[test]
-    fn test_encode_variable_length() {
+    fn test_encoded_data() {
         let mut v = Vec::new();
 
-        assert_eq!(v.write_variable_length(123).unwrap(), 1);
-        assert_eq!(v, &[123]);
+        v.put_str("hello");
+        v.put_bytes(b"world");
+        v.put_varint(123);
+        v.put_varint(129);
+        v.put_varint(16383);
+        v.put_varint(2097151);
+        v.put_varint(268435455);
 
-        v.clear();
-
-        assert_eq!(v.write_variable_length(129).unwrap(), 2);
-        assert_eq!(v, b"\x81\x01");
-
-        v.clear();
-
-        assert_eq!(v.write_variable_length(16383).unwrap(), 2);
-        assert_eq!(v, b"\xff\x7f");
-
-        v.clear();
-
-        assert_eq!(v.write_variable_length(2097151).unwrap(), 3);
-        assert_eq!(v, b"\xff\xff\x7f");
-
-        v.clear();
-
-        assert_eq!(v.write_variable_length(268435455).unwrap(), 4);
-        assert_eq!(v, b"\xff\xff\xff\x7f");
-
-        assert!(v.write_variable_length(MAX_VARIABLE_LENGTH + 1).is_err())
-    }
-
-    #[test]
-    fn test_encode_fixed_header() {
-        let mut v = Vec::new();
-        let p = Packet::PingRequest;
-
-        assert_eq!(v.calc_content_size(&p), 0);
-        assert_eq!(v.write_fixed_header(&p).unwrap(), 2);
-        assert_eq!(v, b"\xc0\x00");
-
-        v.clear();
-
-        let payload = (0..255).map(|b| b).collect::<Vec<u8>>();
-
-        let p = Packet::Publish {
-            dup: true,
-            retain: true,
-            qos: QoS::ExactlyOnce,
-            topic: Cow::from("topic"),
-            packet_id: Some(0x4321),
-            payload: Cow::from(&payload[..]),
-        };
-
-        assert_eq!(v.calc_content_size(&p), 264);
-        assert_eq!(v.write_fixed_header(&p).unwrap(), 3);
-        assert_eq!(v, b"\x3d\x88\x02");
+        assert_eq!(
+            v,
+            b"\x00\x05hello\x00\x05world\x7b\x81\x01\xff\x7f\xff\xff\x7f\xff\xff\xff\x7f"
+        );
     }
 
     macro_rules! assert_packet {
-        ($p:expr, $data:expr) => {
+        ($packet:expr, $right:expr) => {
+            assert_eq!($packet.size(), $right.len(), "assert packet size");
+
             let mut v = Vec::new();
-            assert_eq!(v.write_packet(&$p).unwrap(), $data.len());
-            assert_eq!(v, $data);
-            assert_eq!(read_packet($data).unwrap(), (&b""[..], $p));
+            $packet.write_to(&mut v);
+            assert_eq!(v, &$right[..], "assert packet content: {:#?}", $packet);
         };
     }
 
     #[test]
-    fn test_encode_connect_packets() {
+    fn test_connect() {
         assert_packet!(
-            Packet::Connect {
-                protocol: Protocol::MQTT(4),
+            Packet::Connect(Connect {
                 clean_session: false,
                 keep_alive: 60,
-                client_id: Cow::from("12345"),
+                client_id: "12345",
                 last_will: None,
-                username: Some(Cow::from("user")),
-                password: Some(Cow::from(&b"pass"[..])),
-            },
-            &b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\
-\x0512345\x00\x04user\x00\x04pass"[..]
+                username: Some("user"),
+                password: Some(b"pass"),
+            }),
+            b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\x0512345\x00\x04user\x00\x04pass"
         );
 
         assert_packet!(
-            Packet::Connect {
-                protocol: Protocol::MQTT(4),
+            Packet::Connect(Connect {
                 clean_session: false,
                 keep_alive: 60,
-                client_id: Cow::from("12345"),
+                client_id: "12345",
                 last_will: Some(LastWill {
                     qos: QoS::ExactlyOnce,
                     retain: false,
-                    topic: Cow::from("topic"),
-                    message: Cow::from(&b"message"[..]),
+                    topic: "topic",
+                    message: b"message",
                 }),
                 username: None,
                 password: None,
-            },
-            &b"\x10\x21\x00\x04MQTT\x04\x14\x00\x3C\x00\
-\x0512345\x00\x05topic\x00\x07message"[..]
+            }),
+            b"\x10\x21\x00\x04MQTT\x04\x14\x00\x3C\x00\x0512345\x00\x05topic\x00\x07message"
         );
 
         assert_packet!(Packet::Disconnect, b"\xe0\x00");
     }
 
     #[test]
-    fn test_encode_publish_packets() {
+    fn test_publish() {
         assert_packet!(
-            Packet::Publish {
+            Packet::Publish(Publish {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
-                topic: Cow::from("topic"),
+                topic: "topic",
                 packet_id: Some(0x4321),
-                payload: Cow::from(&b"data"[..]),
-            },
+                payload: b"data",
+            }),
             b"\x3d\x0D\x00\x05topic\x43\x21data"
         );
 
         assert_packet!(
-            Packet::Publish {
+            Packet::Publish(Publish {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
-                topic: Cow::from("topic"),
+                topic: "topic",
                 packet_id: None,
-                payload: Cow::from(&b"data"[..]),
-            },
+                payload: b"data",
+            }),
             b"\x30\x0b\x00\x05topicdata"
         );
     }
 
     #[test]
-    fn test_encode_subscribe_packets() {
+    fn test_subscribe() {
         assert_packet!(
-            Packet::Subscribe {
+            Packet::Subscribe(Subscribe {
                 packet_id: 0x1234,
-                topic_filters: vec![
-                    (Cow::from("test"), QoS::AtLeastOnce),
-                    (Cow::from("filter"), QoS::ExactlyOnce),
-                ],
-            },
+                subscriptions: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce),],
+            }),
             b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02"
         );
 
         assert_packet!(
-            Packet::SubscribeAck {
+            Packet::SubscribeAck(SubscribeAck {
                 packet_id: 0x1234,
                 status: vec![
                     SubscribeReturnCode::Success(QoS::AtLeastOnce),
                     SubscribeReturnCode::Failure,
                     SubscribeReturnCode::Success(QoS::ExactlyOnce),
                 ],
-            },
+            }),
             b"\x90\x05\x12\x34\x01\x80\x02"
         );
 
         assert_packet!(
-            Packet::Unsubscribe {
+            Packet::Unsubscribe(Unsubscribe {
                 packet_id: 0x1234,
-                topic_filters: vec![Cow::from("test"), Cow::from("filter")],
-            },
+                topic_filters: vec!["test", "filter"],
+            }),
             b"\xa2\x10\x12\x34\x00\x04test\x00\x06filter"
         );
 
         assert_packet!(
-            Packet::UnsubscribeAck { packet_id: 0x4321 },
+            Packet::UnsubscribeAck(UnsubscribeAck { packet_id: 0x4321 }),
             b"\xb0\x02\x43\x21"
         );
     }
 
     #[test]
-    fn test_encode_ping_packets() {
-        assert_packet!(Packet::PingRequest, b"\xc0\x00");
-        assert_packet!(Packet::PingResponse, b"\xd0\x00");
+    fn test_ping_pong() {
+        assert_packet!(Packet::Ping, b"\xc0\x00");
+        assert_packet!(Packet::Pong, b"\xd0\x00");
     }
 }
+//     use std::borrow::Cow;
+
+//     use super::*;
+//     use crate::decode::*;
+
+//     #[test]
+//     fn test_encode_fixed_header() {
+//         let mut v = Vec::new();
+//         let p = Packet::PingRequest;
+
+//         assert_eq!(v.calc_content_size(&p), 0);
+//         assert_eq!(v.write_fixed_header(&p).unwrap(), 2);
+//         assert_eq!(v, b"\xc0\x00");
+
+//         v.clear();
+
+//         let payload = (0..255).map(|b| b).collect::<Vec<u8>>();
+
+//         let p = Packet::Publish {
+//             dup: true,
+//             retain: true,
+//             qos: QoS::ExactlyOnce,
+//             topic: Cow::from("topic"),
+//             packet_id: Some(0x4321),
+//             payload: Cow::from(&payload[..]),
+//         };
+
+//         assert_eq!(v.calc_content_size(&p), 264);
+//         assert_eq!(v.write_fixed_header(&p).unwrap(), 3);
+//         assert_eq!(v, b"\x3d\x88\x02");
+//     }
+
+//     macro_rules! assert_packet {
+//         ($p:expr, $data:expr) => {
+//             let mut v = Vec::new();
+//             assert_eq!(v.write_packet(&$p).unwrap(), $data.len());
+//             assert_eq!(v, $data);
+//             assert_eq!(read_packet($data).unwrap(), (&b""[..], $p));
+//         };
+//     }
+
+// }

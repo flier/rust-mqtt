@@ -3,106 +3,87 @@ extern crate criterion;
 
 use criterion::Criterion;
 
-use mqtt_core::*;
+use mqtt_core::{packet::*, QoS};
 
 fn bench_encode_connect_packets(c: &mut Criterion) {
-    let p = Packet::Connect {
-        protocol: Default::default(),
+    let p = Packet::Connect(Connect {
         clean_session: false,
         keep_alive: 60,
-        client_id: "12345".into(),
+        client_id: "12345",
         last_will: Some(LastWill {
             qos: QoS::ExactlyOnce,
             retain: false,
-            topic: "topic".into(),
-            message: (&b"message"[..]).into(),
+            topic: "topic",
+            message: b"message",
         }),
         username: None,
         password: None,
-    };
+    });
 
     c.bench_function("encode_connect_packets", move |b| {
         let mut v = Vec::new();
 
-        b.iter(|| {
-            v.clear();
-            v.write_packet(&p).unwrap();
-        })
+        b.iter(|| p.write_to(&mut v))
     });
 }
 
 fn bench_encode_publish_packets(c: &mut Criterion) {
-    let p = Packet::Publish {
+    let p = Packet::Publish(Publish {
         dup: true,
         retain: true,
         qos: QoS::ExactlyOnce,
-        topic: "topic".into(),
+        topic: "topic",
         packet_id: Some(0x4321),
-        payload: (&b"data"[..]).into(),
-    };
+        payload: b"data",
+    });
 
     c.bench_function("encode_publish_packets", move |b| {
         let mut v = Vec::new();
 
-        b.iter(|| {
-            v.clear();
-            v.write_packet(&p).unwrap();
-        })
+        b.iter(|| p.write_to(&mut v))
     });
 }
 
 fn bench_encode_subscribe_packets(c: &mut Criterion) {
-    let p = Packet::Subscribe {
+    let p = Packet::Subscribe(Subscribe {
         packet_id: 0x1234,
-        topic_filters: vec![
-            ("test".into(), QoS::AtLeastOnce),
-            ("filter".into(), QoS::ExactlyOnce),
-        ],
-    };
+        subscriptions: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce)],
+    });
 
     c.bench_function("encode_subscribe_packets", move |b| {
         let mut v = Vec::new();
 
-        b.iter(|| {
-            v.clear();
-            v.write_packet(&p).unwrap();
-        })
+        b.iter(|| p.write_to(&mut v))
     });
 }
 
 fn bench_encode_subscribe_ack_packets(c: &mut Criterion) {
-    let p = Packet::SubscribeAck {
+    let p = Packet::SubscribeAck(SubscribeAck {
         packet_id: 0x1234,
         status: vec![
             SubscribeReturnCode::Success(QoS::AtLeastOnce),
             SubscribeReturnCode::Failure,
             SubscribeReturnCode::Success(QoS::ExactlyOnce),
         ],
-    };
+    });
 
     c.bench_function("encode_subscribe_ack_packets", move |b| {
         let mut v = Vec::new();
 
-        b.iter(|| {
-            v.clear();
-            v.write_packet(&p).unwrap();
-        })
+        b.iter(|| p.write_to(&mut v))
     });
 }
 
 fn bench_encode_unsubscribe_packets(c: &mut Criterion) {
-    let p = Packet::Unsubscribe {
+    let p = Packet::Unsubscribe(Unsubscribe {
         packet_id: 0x1234,
-        topic_filters: vec!["test".into(), "filter".into()],
-    };
+        topic_filters: vec!["test", "filter"],
+    });
 
     c.bench_function("encode_unsubscribe_packets", move |b| {
         let mut v = Vec::new();
 
-        b.iter(|| {
-            v.clear();
-            v.write_packet(&p).unwrap();
-        })
+        b.iter(|| p.write_to(&mut v))
     });
 }
 
