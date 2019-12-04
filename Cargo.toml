@@ -1,2 +1,7 @@
 [workspace]
-members = ["mqtt-core", "mqtt-proto", "mqtt"]
+members = [
+    "mqtt-core",
+    "mqtt-fuzz",
+    "mqtt-proto",
+    "mqtt",
+]

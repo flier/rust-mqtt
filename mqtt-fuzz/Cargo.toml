@@ -1,0 +1,18 @@
+[package]
+name = "mqtt-fuzz"
+version = "0.2.0"
+authors = ["Flier Lu <flier.lu@gmail.com>"]
+description = "MQTT protocol v3 implementation"
+documentation = "https://docs.rs/mqtt"
+homepage = "https://github.com/flier/rust-mqtt"
+repository = "https://github.com/flier/rust-mqtt.git"
+keywords = ["MQTT", "IoT", "messaging"]
+license = "MIT/Apache-2.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+afl = "0.5"
+
+mqtt-core = { version = "0.2", path = "../mqtt-core" }
