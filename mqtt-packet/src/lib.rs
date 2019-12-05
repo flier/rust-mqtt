@@ -10,5 +10,5 @@ mod decode;
 mod encode;
 mod packet;
 
-pub use crate::packet::*;
 pub use crate::encode::WriteTo;
+pub use crate::packet::*;
