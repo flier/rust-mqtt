@@ -1,5 +1,5 @@
 [package]
-name = "mqtt-core"
+name = "mqtt-packet"
 version = "0.2.0"
 authors = ["Flier Lu <flier.lu@gmail.com>"]
 description = "MQTT protocol v3 implementation"

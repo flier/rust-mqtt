@@ -3,7 +3,7 @@ extern crate criterion;
 
 use criterion::Criterion;
 
-use mqtt_core::Packet;
+use mqtt_packet::Packet;
 
 fn bench_decode_connect_packets(c: &mut Criterion) {
     let buf = b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\x0512345\x00\x04user\x00\x04pass";

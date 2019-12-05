@@ -1,6 +1,8 @@
 use std::io;
+use std::iter;
 use std::marker::PhantomData;
 
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use tokio_codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_proto::multiplex::{ClientProto, ServerProto};
@@ -38,4 +40,14 @@ where
     fn bind_transport(&self, io: T) -> Self::BindTransport {
         Ok(Framed::new(io, Codec::default()))
     }
+}
+
+/// A unique Client identifier for the Client
+pub fn client_id(size: usize) -> String {
+    let mut rng = thread_rng();
+
+    iter::repeat(())
+        .map(|()| rng.sample(Alphanumeric))
+        .take(size)
+        .collect()
 }

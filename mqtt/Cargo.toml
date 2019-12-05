@@ -13,19 +13,19 @@ edition = "2018"
 [dependencies]
 log = "0.4"
 failure = "0.1"
-bytes = "0.4"
-nom = "4.2"
+bytes = "0.5"
+nom = "5"
 slab = "0.4"
 rotor = "0.6"
 
-mqtt-core = { version = "*", path = "../mqtt-core" }
-mqtt-proto = { version = "*", path = "../mqtt-proto" }
+mqtt-packet = { version = "0.2", path = "../mqtt-packet" }
+mqtt-proto = { version = "0.2", path = "../mqtt-proto" }
 
 [dev-dependencies]
 pretty_env_logger = "0.3"
 clap = "^2"
 mio = "^0.6"
-criterion = "0.2"
+criterion = "0.3"
 
 [[bench]]
 name = "topic"

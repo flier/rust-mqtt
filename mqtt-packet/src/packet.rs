@@ -82,7 +82,9 @@ pub enum Type {
     DISCONNECT = 14,
 }
 
+/// The Protocol Name of the protocol.
 pub const PROTOCOL_NAME: &[u8] = b"\x00\x04MQTT";
+/// The revision level of the protocol used by the Client.
 pub const PROTOCOL_LEVEL: u8 = 4;
 
 /// Quality of Service levels
@@ -131,14 +133,24 @@ pub struct Connect<'a> {
 }
 
 bitflags! {
-    /// Connect Flags
+    /// The Connect Flags byte contains a number of parameters specifying the behavior of the MQTT connection.
+    /// It also indicates the presence or absence of fields in the payload.
     #[derive(Default)]
     pub struct ConnectFlags: u8 {
+        /// This bit specifies a user name be present in the payload.
         const USERNAME      = 0b1000_0000;
+        /// This bit specifies a password MUST be present in the payload.
         const PASSWORD      = 0b0100_0000;
+        /// This bit specifies if the Will Message is to be Retained when it is published.
         const WILL_RETAIN   = 0b0010_0000;
+        /// These two bits specify the QoS level to be used when publishing the Will Message.
         const WILL_QOS      = 0b0001_1000;
+        /// If the Will Flag is set to 1 this indicates that, if the Connect request is accepted,
+        /// a Will Message MUST be stored on the Server and associated with the Network Connection.
+        /// The Will Message MUST be published when the Network Connection is subsequently closed
+        /// unless the Will Message has been deleted by the Server on receipt of a DISCONNECT Packet [MQTT-3.1.2-8].
         const LAST_WILL     = 0b0000_0100;
+        /// This bit specifies the handling of the Session state.
         const CLEAN_SESSION = 0b0000_0010;
     }
 }
@@ -174,8 +186,8 @@ pub struct LastWill<'a> {
 /// Connect acknowledgment
 #[derive(Debug, PartialEq, Clone)]
 pub struct ConnectAck {
-    /// enables a Client to establish whether the Client and Server have a consistent view
-    /// about whether there is already stored Session state.
+    /// The Session Present flag enables a Client to establish
+    /// whether the Client and Server have a consistent view about whether there is already stored Session state.
     pub session_present: bool,
     /// If a well formed CONNECT Packet is received by the Server,
     /// but the Server is unable to process it for some reason,
@@ -185,9 +197,11 @@ pub struct ConnectAck {
 }
 
 bitflags! {
-    /// ConnectAck Flags
+    /// The Connect Acknowledge Flags.
     #[derive(Default)]
     pub struct ConnectAckFlags: u8 {
+        /// The Session Present flag enables a Client to establish
+        /// whether the Client and Server have a consistent view about whether there is already stored Session state.
         const SESSION_PRESENT = 0b0000_0001;
     }
 }
@@ -247,26 +261,16 @@ bitflags! {
     /// Publish Flags
     #[derive(Default)]
     pub struct PublishFlags: u8 {
+        /// This might be re-delivery of an earlier attempt to send the Packet.
         const DUP = 0b0000_1000;
+        /// The level of assurance for delivery of an Application Message.
         const QOS = 0b0000_0110;
+        /// It can be delivered to future subscribers whose subscriptions match its topic name
         const RETAIN = 0b0000_0001;
     }
 }
 
 const PUBLISH_DUP_SHIFT: usize = 1;
-
-impl Publish<'_> {
-    pub fn flags(&self) -> PublishFlags {
-        let mut flags = PublishFlags::from(self.qos);
-        if self.dup {
-            flags |= PublishFlags::DUP;
-        }
-        if self.retain {
-            flags |= PublishFlags::RETAIN;
-        }
-        flags
-    }
-}
 
 impl PublishFlags {
     /// the QoS level to be used when publishing the Will Message.
@@ -321,6 +325,7 @@ pub struct Subscribe<'a> {
 /// Subscribe acknowledgment
 #[derive(Debug, PartialEq, Clone)]
 pub struct SubscribeAck {
+    /// Packet Identifier
     pub packet_id: PacketId,
     /// corresponds to a Topic Filter in the SUBSCRIBE Packet being acknowledged.
     pub status: Vec<SubscribeReturnCode>,
@@ -329,15 +334,21 @@ pub struct SubscribeAck {
 /// Subscribe Return Code
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum SubscribeReturnCode {
+    /// Success
     Success(QoS),
+    /// Failure
     Failure,
+}
+
+impl SubscribeReturnCode {
+    pub(crate) const FAILURE: u8 = 0x80;
 }
 
 impl From<SubscribeReturnCode> for u8 {
     fn from(code: SubscribeReturnCode) -> u8 {
         match code {
             SubscribeReturnCode::Success(qos) => qos as u8,
-            SubscribeReturnCode::Failure => SubscribeAck::FAILURE,
+            SubscribeReturnCode::Failure => SubscribeReturnCode::FAILURE,
         }
     }
 }

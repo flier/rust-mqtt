@@ -7,10 +7,6 @@ use crate::packet::*;
 pub const LENGTH_FIELD_SIZE: usize = mem::size_of::<u16>();
 
 impl Packet<'_> {
-    pub fn write_to<T: BufMut>(&self, buf: &mut T) {
-        WriteTo::write_to(self, buf);
-    }
-
     fn fixed_header(&self) -> FixedHeader {
         FixedHeader {
             packet_type: self.packet_type(),
@@ -19,6 +15,7 @@ impl Packet<'_> {
         }
     }
 
+    /// The MQTT control packet type.
     pub fn packet_type(&self) -> Type {
         match *self {
             Packet::Connect(_) => Type::CONNECT,
@@ -90,9 +87,12 @@ trait BufMutExt: BufMut {
 
 impl<T: BufMut> BufMutExt for T {}
 
-trait WriteTo {
+/// A trait for objects which can be written to byte-oriented sinks.
+pub trait WriteTo {
+    /// Gets the size of this object.
     fn size(&self) -> usize;
 
+    /// Writes this object to the given byte-oriented sink.
     fn write_to<T: BufMut>(&self, buf: &mut T);
 }
 
@@ -205,6 +205,19 @@ impl WriteTo for ConnectAck {
             0
         });
         buf.put_u8(self.return_code as u8);
+    }
+}
+
+impl Publish<'_> {
+    fn flags(&self) -> PublishFlags {
+        let mut flags = PublishFlags::from(self.qos);
+        if self.dup {
+            flags |= PublishFlags::DUP;
+        }
+        if self.retain {
+            flags |= PublishFlags::RETAIN;
+        }
+        flags
     }
 }
 

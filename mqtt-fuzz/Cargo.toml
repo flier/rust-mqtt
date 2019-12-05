@@ -15,4 +15,4 @@ edition = "2018"
 [dependencies]
 afl = "0.5"
 
-mqtt-core = { version = "0.2", path = "../mqtt-core" }
+mqtt-packet = { version = "0.2", path = "../mqtt-packet" }

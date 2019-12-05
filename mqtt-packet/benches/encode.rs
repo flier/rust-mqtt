@@ -3,7 +3,7 @@ extern crate criterion;
 
 use criterion::Criterion;
 
-use mqtt_core::{packet::*, QoS};
+use mqtt_packet::*;
 
 fn bench_encode_connect_packets(c: &mut Criterion) {
     let p = Packet::Connect(Connect {

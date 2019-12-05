@@ -10,8 +10,8 @@ extern crate slab;
 pub extern crate mqtt_core as core;
 pub extern crate mqtt_proto as proto;
 
-pub mod errors;
 pub mod client;
+pub mod errors;
 pub mod server;
 pub mod transport;
 

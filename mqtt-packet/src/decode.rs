@@ -122,6 +122,7 @@ fn packet_id<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], 
 }
 
 impl Packet<'_> {
+    /// Parses the bytes slice into Packet type.
     pub fn parse<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Packet<'a>, E> {
         let (input, fixed_header) = FixedHeader::parse(input)?;
         let (remaining, input) = take(fixed_header.remaining_length)(input)?;
@@ -289,7 +290,6 @@ impl Subscribe<'_> {
 }
 
 impl SubscribeAck {
-    pub const FAILURE: u8 = 0x80;
     const QOS_MASK: u8 = 0x3;
 
     fn parse<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Self, E> {
@@ -299,7 +299,7 @@ impl SubscribeAck {
                 many1(context(
                     "return code",
                     map(be_u8, |b| {
-                        if (b & Self::FAILURE) == 0 {
+                        if (b & SubscribeReturnCode::FAILURE) == 0 {
                             SubscribeReturnCode::Success(unsafe {
                                 QoS::from_unchecked(b & Self::QOS_MASK)
                             })

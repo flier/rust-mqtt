@@ -14,14 +14,15 @@ edition = "2018"
 log = "0.4"
 failure = "0.1"
 void = "1.0"
-bytes = "0.4"
-nom = "4.2"
+bytes = "0.5"
+nom = "5"
 slab = "0.4"
 time = "0.1"
 pwhash = "0.3"
 itertools = "0.8"
 serde = "1.0"
 serde_derive = "1.0"
+rand = "0.7"
 
 futures = "0.1"
 tokio-io = "0.1"
@@ -30,7 +31,7 @@ tokio-codec = "0.1"
 tokio-proto = "0.1"
 tokio-service = "0.1"
 
-mqtt-core = { version = "*", path = "../mqtt-core" }
+mqtt-packet = { version = "0.2", path = "../mqtt-packet" }
 
 [dev-dependencies]
 matches = "0.1"
