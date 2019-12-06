@@ -2,7 +2,7 @@ use core::mem;
 
 use bytes::BufMut;
 
-use crate::packet::*;
+use crate::{packet::*, Property};
 
 const PROPERTY_ID_SIZE: usize = mem::size_of::<u8>();
 const LENGTH_FIELD_SIZE: usize = mem::size_of::<u16>();
@@ -177,8 +177,8 @@ impl WriteTo for Property<'_> {
         PROPERTY_ID_SIZE
             + match self {
                 Property::PayloadFormat(_)
-                | Property::RequestProblem(_)
-                | Property::RequestResponse(_)
+                | Property::RequestProblemInformation(_)
+                | Property::RequestResponseInformation(_)
                 | Property::MaximumQoS(_)
                 | Property::RetainAvailable(_)
                 | Property::WildcardSubscriptionAvailable(_)
@@ -195,7 +195,7 @@ impl WriteTo for Property<'_> {
                 | Property::WillDelayInterval(_)
                 | Property::MaximumPacketSize(_) => mem::size_of::<u32>(),
 
-                Property::SubscriptionId(n) => size_of_varint(*n),
+                Property::SubscriptionId(n) => size_of_varint(*n as usize),
 
                 Property::CorrelationData(s) | Property::AuthData(s) => LENGTH_FIELD_SIZE + s.len(),
 
@@ -203,7 +203,7 @@ impl WriteTo for Property<'_> {
                 | Property::ResponseTopic(s)
                 | Property::AssignedClientId(s)
                 | Property::AuthMethod(s)
-                | Property::Response(s)
+                | Property::ResponseInformation(s)
                 | Property::ServerReference(s)
                 | Property::Reason(s) => LENGTH_FIELD_SIZE + s.len(),
 
@@ -220,11 +220,11 @@ impl WriteTo for Property<'_> {
             Property::RetainAvailable(b)
             | Property::WildcardSubscriptionAvailable(b)
             | Property::SubscriptionIdAvailable(b)
-            | Property::SharedSubscriptionAvailable(b) => {
+            | Property::SharedSubscriptionAvailable(b)
+            | Property::RequestProblemInformation(b)
+            | Property::RequestResponseInformation(b) => {
                 buf.put_u8(if b { SUPPORTED } else { UNSUPPORTED })
             }
-
-            Property::RequestProblem(n) | Property::RequestResponse(n) => buf.put_u8(n),
 
             Property::PayloadFormat(n) => buf.put_u8(n as u8),
             Property::MaximumQoS(n) => buf.put_u8(n as u8),
@@ -234,12 +234,13 @@ impl WriteTo for Property<'_> {
             | Property::TopicAliasMaximum(n)
             | Property::TopicAlias(n) => buf.put_u16(n),
 
-            Property::MessageExpiryInterval(d)
-            | Property::SessionExpiryInterval(d)
-            | Property::WillDelayInterval(d) => buf.put_u32(d.as_secs()),
+            Property::MessageExpiryInterval(d) | Property::WillDelayInterval(d) => {
+                buf.put_u32(d.as_secs() as u32)
+            }
+            Property::SessionExpiryInterval(d) => buf.put_u32(d.as_secs()),
             Property::MaximumPacketSize(n) => buf.put_u32(n),
 
-            Property::SubscriptionId(n) => buf.put_varint(n),
+            Property::SubscriptionId(n) => buf.put_varint(n as usize),
 
             Property::CorrelationData(s) | Property::AuthData(s) => buf.put_binary(s),
 
@@ -247,7 +248,7 @@ impl WriteTo for Property<'_> {
             | Property::ResponseTopic(s)
             | Property::AssignedClientId(s)
             | Property::AuthMethod(s)
-            | Property::Response(s)
+            | Property::ResponseInformation(s)
             | Property::ServerReference(s)
             | Property::Reason(s) => buf.put_utf8_str(s),
 
@@ -268,7 +269,9 @@ impl WriteTo for Connect<'_> {
             + self.properties.as_ref().map_or(0, |p| p.size())
             + LENGTH_FIELD_SIZE + self.client_id.len()  // client_id
             + self.last_will.as_ref().map_or(0, |will| {
-                LENGTH_FIELD_SIZE + will.topic_name.len() + LENGTH_FIELD_SIZE + will.message.len()
+                will.properties.as_ref().map_or(0, |p| p.size())
+                + LENGTH_FIELD_SIZE + will.topic_name.len()
+                + LENGTH_FIELD_SIZE + will.message.len()
             })
             + self.username.map_or(0, |s| LENGTH_FIELD_SIZE + s.len())
             + self.password.map_or(0, |s| LENGTH_FIELD_SIZE + s.len())
@@ -304,6 +307,9 @@ impl WriteTo for Connect<'_> {
         }
         buf.put_utf8_str(self.client_id);
         if let Some(ref will) = self.last_will {
+            if let Some(ref props) = will.properties {
+                props.write_to(buf);
+            }
             buf.put_utf8_str(will.topic_name);
             buf.put_binary(will.message);
         }
@@ -449,8 +455,10 @@ impl WriteTo for Subscribe<'_> {
             + self
                 .subscriptions
                 .iter()
-                .map(|(topic_filter, _)| {
-                    LENGTH_FIELD_SIZE + topic_filter.len() + mem::size_of::<QoS>()
+                .map(|subscription| {
+                    LENGTH_FIELD_SIZE
+                        + subscription.topic_filter.len()
+                        + mem::size_of::<SubscriptionOptions>()
                 })
                 .sum::<usize>()
     }
@@ -460,9 +468,9 @@ impl WriteTo for Subscribe<'_> {
         if let Some(ref props) = self.properties {
             props.write_to(buf);
         }
-        for &(topic_filter, qos) in &self.subscriptions {
-            buf.put_utf8_str(topic_filter);
-            buf.put_u8(qos as u8)
+        for subscription in &self.subscriptions {
+            buf.put_utf8_str(subscription.topic_filter);
+            buf.put_u8(subscription.options().bits())
         }
     }
 }
@@ -555,6 +563,7 @@ impl WriteTo for Auth<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::*;
 
     #[test]
     fn test_encoded_data() {
@@ -612,6 +621,7 @@ mod tests {
                     retain: false,
                     topic_name: "topic",
                     message: b"message",
+                    properties: None,
                 }),
                 username: None,
                 password: None,
@@ -634,6 +644,7 @@ mod tests {
                     retain: false,
                     topic_name: "topic",
                     message: b"message",
+                    properties: None,
                 }),
                 username: None,
                 password: None,
@@ -685,7 +696,18 @@ mod tests {
             Packet::Subscribe(Subscribe {
                 packet_id: 0x1234,
                 properties: None,
-                subscriptions: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce),],
+                subscriptions: vec![
+                    Subscription {
+                        topic_filter: "test",
+                        qos: QoS::AtLeastOnce,
+                        ..Default::default()
+                    },
+                    Subscription {
+                        topic_filter: "filter",
+                        qos: QoS::ExactlyOnce,
+                        ..Default::default()
+                    }
+                ],
             }),
             b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02"
         );

@@ -1,14 +1,16 @@
-use core::time::Duration;
+use std::error::Error as StdError;
 
 use derive_more::Display;
 use num_enum::{TryFromPrimitive, UnsafeFromPrimitive};
+
+use crate::Property;
 
 /// The Protocol Name of the protocol.
 pub const PROTOCOL_NAME: &[u8] = b"\x00\x04MQTT";
 
 /// The revision level of the protocol used by the Client.
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, PartialOrd, Copy, Clone, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Clone, Copy, TryFromPrimitive)]
 pub enum ProtocolVersion {
     /// The value of the Protocol Level field for the version 3.1.1 of the protocol is 4 (0x04).
     V311 = 4,
@@ -17,7 +19,7 @@ pub enum ProtocolVersion {
 }
 
 /// MQTT Control Packets
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Packet<'a> {
     /// Client request to connect to Server
     Connect(Connect<'a>),
@@ -54,7 +56,7 @@ pub enum Packet<'a> {
 /// Fixed Header
 ///
 /// Each MQTT Control Packet contains a fixed header.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FixedHeader {
     /// MQTT Control Packet type
     pub packet_type: Type,
@@ -67,7 +69,7 @@ pub struct FixedHeader {
 
 /// MQTT Control Packet type
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive)]
 pub enum Type {
     /// Client request to connect to Server
     CONNECT = 1,
@@ -101,192 +103,9 @@ pub enum Type {
     AUTH = 15,
 }
 
-/// Property identifier which defines its usage and data type
-#[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
-pub enum PropertyId {
-    /// Payload Format Indicator [PUBLISH, Will Properties]
-    PayloadFormat = 0x01,
-    /// Message Expiry Interval [PUBLISH, Will Properties]
-    MessageExpiryInterval = 0x02,
-    /// Content Type [PUBLISH, Will Properties]
-    ContentType = 0x03,
-    /// Response Topic [PUBLISH, Will Properties]
-    ResponseTopic = 0x08,
-    /// Correlation Data [PUBLISH, Will Properties]
-    CorrelationData = 0x09,
-    /// Subscription Identifier [PUBLISH, SUBSCRIBE]
-    SubscriptionId = 0x0B,
-    /// Session Expiry Interval [CONNECT, CONNACK, DISCONNECT]
-    SessionExpiryInterval = 0x11,
-    /// Assigned Client Identifier [CONNACK]
-    AssignedClientId = 0x12,
-    /// Server Keep Alive [CONNACK]
-    ServerKeepAlive = 0x13,
-    /// Authentication Method [CONNECT, CONNACK, AUTH]
-    AuthMethod = 0x15,
-    /// Authentication Data [CONNECT, CONNACK, AUTH]
-    AuthData = 0x16,
-    /// Request Problem Information [CONNECT]
-    RequestProblem = 0x17,
-    /// Will Delay Interval [Will Properties]
-    WillDelayInterval = 0x18,
-    /// Request Response Information [CONNECT]
-    RequestResponse = 0x19,
-    /// Response Information [CONNACK]
-    Response = 0x1A,
-    /// Server Reference [CONNACK, DISCONNECT]
-    ServerReference = 0x1C,
-    /// Reason String [CONNACK, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK, UNSUBACK, DISCONNECT, AUTH]
-    Reason = 0x1F,
-    /// Receive Maximum [CONNECT, CONNACK]
-    ReceiveMaximum = 0x21,
-    /// Topic Alias Maximum [CONNECT, CONNACK]
-    TopicAliasMaximum = 0x22,
-    /// Topic Alias [PUBLISH]
-    TopicAlias = 0x23,
-    /// MaximumQoS [CONNACK]
-    MaximumQoS = 0x24,
-    /// Retain Available [CONNACK]
-    RetainAvailable = 0x25,
-    /// User Property [CONNECT, CONNACK, PUBLISH, Will Properties, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK, DISCONNECT, AUTH]
-    UserProperty = 0x26,
-    /// Maximum Packet Size [CONNECT, CONNACK]
-    MaximumPacketSize = 0x27,
-    /// Wildcard Subscription Available [CONNACK]
-    WildcardSubscriptionAvailable = 0x28,
-    /// Subscription Identifier Available [CONNACK]
-    SubscriptionIdAvailable = 0x29,
-    /// Shared Subscription Available [CONNACK]
-    SharedSubscriptionAvailable = 0x2A,
-}
-
-/// Property with data
-#[derive(Debug, Clone, PartialEq)]
-pub enum Property<'a> {
-    /// Payload Format Indicator [PUBLISH, Will Properties]
-    PayloadFormat(PayloadFormat),
-    /// Message Expiry Interval [PUBLISH, Will Properties]
-    MessageExpiryInterval(Expiry),
-    /// Content Type [PUBLISH, Will Properties]
-    ContentType(&'a str),
-    /// Response Topic [PUBLISH, Will Properties]
-    ResponseTopic(&'a str),
-    /// Correlation Data [PUBLISH, Will Properties]
-    CorrelationData(&'a [u8]),
-    /// Subscription Identifier [PUBLISH, SUBSCRIBE]
-    SubscriptionId(usize),
-    /// Session Expiry Interval [CONNECT, CONNACK, DISCONNECT]
-    SessionExpiryInterval(Expiry),
-    /// Assigned Client Identifier [CONNACK]
-    AssignedClientId(&'a str),
-    /// Server Keep Alive [CONNACK]
-    ServerKeepAlive(u16),
-    /// Authentication Method [CONNECT, CONNACK, AUTH]
-    AuthMethod(&'a str),
-    /// Authentication Data [CONNECT, CONNACK, AUTH]
-    AuthData(&'a [u8]),
-    /// Request Problem Information [CONNECT]
-    RequestProblem(u8),
-    /// Will Delay Interval [Will Properties]
-    WillDelayInterval(Expiry),
-    /// Request Response Information [CONNECT]
-    RequestResponse(u8),
-    /// Response Information [CONNACK]
-    Response(&'a str),
-    /// Server Reference [CONNACK, DISCONNECT]
-    ServerReference(&'a str),
-    /// Reason String [CONNACK, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK, UNSUBACK, DISCONNECT, AUTH]
-    Reason(&'a str),
-    /// Receive Maximum [CONNECT, CONNACK]
-    ReceiveMaximum(u16),
-    /// Topic Alias Maximum [CONNECT, CONNACK]
-    TopicAliasMaximum(u16),
-    /// Topic Alias [PUBLISH]
-    TopicAlias(u16),
-    /// MaximumQoS [CONNACK]
-    MaximumQoS(QoS),
-    /// Retain Available [CONNACK]
-    RetainAvailable(bool),
-    /// User Property [CONNECT, CONNACK, PUBLISH, Will Properties, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK, DISCONNECT, AUTH]
-    UserProperty(&'a str, &'a str),
-    /// Maximum Packet Size [CONNECT, CONNACK]
-    MaximumPacketSize(u32),
-    /// Wildcard Subscription Available [CONNACK]
-    WildcardSubscriptionAvailable(bool),
-    /// Subscription Identifier Available [CONNACK]
-    SubscriptionIdAvailable(bool),
-    /// Shared Subscription Available [CONNACK]
-    SharedSubscriptionAvailable(bool),
-}
-
-impl Property<'_> {
-    /// Returns property identifier which defines its usage and data type
-    pub fn id(&self) -> PropertyId {
-        match self {
-            Property::PayloadFormat(_) => PropertyId::PayloadFormat,
-            Property::MessageExpiryInterval(_) => PropertyId::MessageExpiryInterval,
-            Property::ContentType(_) => PropertyId::ContentType,
-            Property::ResponseTopic(_) => PropertyId::ResponseTopic,
-            Property::CorrelationData(_) => PropertyId::CorrelationData,
-            Property::SubscriptionId(_) => PropertyId::SubscriptionId,
-            Property::SessionExpiryInterval(_) => PropertyId::SessionExpiryInterval,
-            Property::AssignedClientId(_) => PropertyId::AssignedClientId,
-            Property::ServerKeepAlive(_) => PropertyId::ServerKeepAlive,
-            Property::AuthMethod(_) => PropertyId::AuthMethod,
-            Property::AuthData(_) => PropertyId::AuthData,
-            Property::RequestProblem(_) => PropertyId::RequestProblem,
-            Property::WillDelayInterval(_) => PropertyId::WillDelayInterval,
-            Property::RequestResponse(_) => PropertyId::RequestResponse,
-            Property::Response(_) => PropertyId::Response,
-            Property::ServerReference(_) => PropertyId::ServerReference,
-            Property::Reason(_) => PropertyId::Reason,
-            Property::ReceiveMaximum(_) => PropertyId::ReceiveMaximum,
-            Property::TopicAliasMaximum(_) => PropertyId::TopicAliasMaximum,
-            Property::TopicAlias(_) => PropertyId::TopicAlias,
-            Property::MaximumQoS(_) => PropertyId::MaximumQoS,
-            Property::RetainAvailable(_) => PropertyId::RetainAvailable,
-            Property::UserProperty(_, _) => PropertyId::UserProperty,
-            Property::MaximumPacketSize(_) => PropertyId::MaximumPacketSize,
-            Property::WildcardSubscriptionAvailable(_) => PropertyId::WildcardSubscriptionAvailable,
-            Property::SubscriptionIdAvailable(_) => PropertyId::SubscriptionIdAvailable,
-            Property::SharedSubscriptionAvailable(_) => PropertyId::SharedSubscriptionAvailable,
-        }
-    }
-}
-
-/// Identifier of the Payload Format Indicator.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, TryFromPrimitive)]
-pub enum PayloadFormat {
-    /// the Will Message is unspecified bytes,
-    Binary = 0,
-    /// UTF-8 Encoded Character Data.
-    Utf8 = 1,
-}
-
-/// Identifier of the Session Expiry Interval.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub enum Expiry {
-    /// Interval in seconds
-    Interval(Duration),
-    /// the Session does not expire.
-    Never,
-}
-
-impl Expiry {
-    /// Returns the number of whole seconds contained by this Expiry.
-    pub fn as_secs(&self) -> u32 {
-        match self {
-            Expiry::Interval(ref d) => d.as_secs() as u32,
-            Expiry::Never => u32::max_value(),
-        }
-    }
-}
-
 /// The result of an operation
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive)]
 pub enum ReasonCode {
     /// Granted QoS 0 [SUBACK]
     GrantedQoS0 = 0,
@@ -394,7 +213,17 @@ impl ReasonCode {
 /// Quality of Service levels
 #[repr(u8)]
 #[derive(
-    Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, TryFromPrimitive, UnsafeFromPrimitive,
+    Clone,
+    Copy,
+    Debug,
+    Display,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    TryFromPrimitive,
+    UnsafeFromPrimitive,
 )]
 pub enum QoS {
     /// At most once delivery
@@ -402,6 +231,7 @@ pub enum QoS {
     /// The message is delivered according to the capabilities of the underlying network.
     /// No response is sent by the receiver and no retry is performed by the sender.
     /// The message arrives at the receiver either once or not at all.
+    #[display(fmt = "at-most-once")]
     AtMostOnce = 0,
 
     /// At least once delivery
@@ -409,6 +239,7 @@ pub enum QoS {
     /// This quality of service ensures that the message arrives at the receiver at least once.
     /// A QoS 1 PUBLISH Packet has a Packet Identifier in its variable header
     /// and is acknowledged by a PUBACK Packet.
+    #[display(fmt = "at-least-once")]
     AtLeastOnce = 1,
 
     /// Exactly once delivery
@@ -416,11 +247,18 @@ pub enum QoS {
     /// This is the highest quality of service,
     /// for use when neither loss nor duplication of messages are acceptable.
     /// There is an increased overhead associated with this quality of service.
+    #[display(fmt = "exactly-once")]
     ExactlyOnce = 2,
 }
 
+impl Default for QoS {
+    fn default() -> Self {
+        QoS::AtMostOnce
+    }
+}
+
 /// Client request to connect to Server
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Connect<'a> {
     /// the revision level of the protocol used by the Client.
     pub protocol_version: ProtocolVersion,
@@ -479,7 +317,7 @@ impl From<QoS> for ConnectFlags {
 }
 
 /// Connection Will
-#[derive(Debug, PartialEq, Hash, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LastWill<'a> {
     /// the QoS level to be used when publishing the Will Message.
     pub qos: QoS,
@@ -489,10 +327,12 @@ pub struct LastWill<'a> {
     pub topic_name: &'a str,
     /// defines the Application Message that is to be published to the Will Topic
     pub message: &'a [u8],
+    /// Will properties
+    pub properties: Option<Vec<Property<'a>>>,
 }
 
 /// Connect acknowledgment
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConnectAck<'a> {
     /// The Session Present flag enables a Client to establish
     /// whether the Client and Server have a consistent view about whether there is already stored Session state.
@@ -518,26 +358,39 @@ bitflags! {
 
 /// Connect Return Code
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Copy, Clone, TryFromPrimitive, Display)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, Display)]
 pub enum ConnectReturnCode {
     /// Connection accepted
     #[display(fmt = "Connection Accepted")]
     ConnectionAccepted = 0,
-    /// Connection Refused, unacceptable protocol version
+    /// The Server does not support the level of the MQTT protocol requested by the Client
     #[display(fmt = "Connection Refused, unacceptable protocol version")]
     UnacceptableProtocolVersion = 1,
-    /// Connection Refused, identifier rejected
+    /// The Client identifier is correct UTF-8 but not allowed by the Server
     #[display(fmt = "Connection Refused, identifier rejected")]
-    IdentifierRejected = 2,
-    /// Connection Refused, Server unavailable
+    ClientIdRejected = 2,
+    /// The Network Connection has been made but the MQTT service is unavailable
     #[display(fmt = "Connection Refused, Server unavailable")]
     ServiceUnavailable = 3,
-    /// Connection Refused, bad user name or password
+    /// The data in the user name or password is malformed
     #[display(fmt = "Connection Refused, bad user name or password")]
     BadUserNameOrPassword = 4,
-    /// Connection Refused, not authorized
+    /// The Client is not authorized to connect
     #[display(fmt = "Connection Refused, not authorized")]
     NotAuthorized = 5,
+}
+
+impl StdError for ConnectReturnCode {}
+
+impl ConnectReturnCode {
+    /// Transforms the `ConnectReturnCode` into a `Result<(), ConnectReturnCode>`.
+    pub fn ok(self) -> Result<(), Self> {
+        if self == ConnectReturnCode::ConnectionAccepted {
+            Ok(())
+        } else {
+            Err(self)
+        }
+    }
 }
 
 /// Packet Identifier
@@ -546,7 +399,7 @@ pub enum ConnectReturnCode {
 pub type PacketId = u16;
 
 /// Publish message
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Publish<'a> {
     /// If the DUP flag is set to 0, it indicates that this is the first occasion
     /// that the Client or Server has attempted to send this MQTT PUBLISH Packet.
@@ -598,7 +451,7 @@ impl From<QoS> for PublishFlags {
 }
 
 /// Publish acknowledgment
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PublishAck<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -609,7 +462,7 @@ pub struct PublishAck<'a> {
 }
 
 /// Publish received (assured delivery part 1)
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PublishReceived<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -620,7 +473,7 @@ pub struct PublishReceived<'a> {
 }
 
 /// Publish release (assured delivery part 2)
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PublishRelease<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -631,7 +484,7 @@ pub struct PublishRelease<'a> {
 }
 
 /// Publish complete (assured delivery part 3)
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PublishComplete<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -642,18 +495,95 @@ pub struct PublishComplete<'a> {
 }
 
 /// Client subscribe request
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Subscribe<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
     /// Subscribe properties
     pub properties: Option<Vec<Property<'a>>>,
     /// the list of Topic Filters and QoS to which the Client wants to subscribe.
-    pub subscriptions: Vec<(&'a str, QoS)>,
+    pub subscriptions: Vec<Subscription<'a>>,
+}
+
+/// MQTT Subscription
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Subscription<'a> {
+    /// Topic Filter indicating the Topics to which the Client wants to subscribe.
+    pub topic_filter: &'a str,
+    /// Maximum QoS
+    pub qos: QoS,
+    /// No Local option.
+    ///
+    /// If the value is true, Application Messages MUST NOT be forwarded to a connection
+    /// with a ClientID equal to the ClientID of the publishing connection [MQTT-3.8.3-3].
+    /// It is a Protocol Error to set the No Local bit to 1 on a Shared Subscription [MQTT-3.8.3-4].
+    pub no_local: bool,
+    /// If true, Application Messages forwarded using this subscription keep the RETAIN flag they were published with.
+    /// If false, Application Messages forwarded using this subscription have the RETAIN flag set to 0.
+    /// Retained messages sent when the subscription is established have the RETAIN flag set to 1.
+    pub retain_as_published: bool,
+    /// This option specifies whether retained messages are sent when the subscription is established.
+    ///
+    /// This does not affect the sending of retained messages at any point after the subscribe.
+    /// If there are no retained messages matching the Topic Filter, all of these values act the same.
+    pub retain_handling: RetainHandling,
+}
+
+impl Subscription<'_> {
+    pub(crate) const RETAIN_HANDLING_SHIFT: usize = 4;
+
+    /// Subscription Options
+    pub fn options(&self) -> SubscriptionOptions {
+        let mut opts = SubscriptionOptions::from_bits_truncate(
+            self.qos as u8 + ((self.retain_handling as u8) << Self::RETAIN_HANDLING_SHIFT),
+        );
+
+        if self.no_local {
+            opts |= SubscriptionOptions::NL;
+        }
+        if self.retain_as_published {
+            opts |= SubscriptionOptions::RAP;
+        }
+
+        opts
+    }
+}
+
+/// Subscribe Return Code
+#[repr(u8)]
+#[derive(Debug, PartialEq, Clone, Copy, TryFromPrimitive)]
+pub enum RetainHandling {
+    /// Send retained messages at the time of the subscribe
+    AfterSubscribe = 0,
+    /// Send retained messages at subscribe only if the subscription does not currently exist
+    NewSubscription = 1,
+    /// Do not send retained messages at the time of the subscribe
+    SkipSubscribe = 2,
+}
+
+impl Default for RetainHandling {
+    fn default() -> Self {
+        RetainHandling::AfterSubscribe
+    }
+}
+
+bitflags! {
+    /// Subscription Options
+    #[derive(Default)]
+    pub struct SubscriptionOptions: u8 {
+        /// Maximum QoS field. This gives the maximum QoS level at which the Server can send Application Messages to the Client.
+        const QOS = 0b0000_0011;
+        /// No Local option.
+        const NL = 0b0000_0100;
+        /// Retain As Published option.
+        const RAP = 0b0000_1000;
+        /// Retain Handling option.
+        const RETAIN_HANDLING = 0b0011_0000;
+    }
 }
 
 /// Subscribe acknowledgment
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SubscribeAck<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -664,7 +594,7 @@ pub struct SubscribeAck<'a> {
 }
 
 /// Subscribe Return Code
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum SubscribeReturnCode {
     /// Success
     Success(QoS),
@@ -686,7 +616,7 @@ impl From<SubscribeReturnCode> for u8 {
 }
 
 /// Unsubscribe request
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Unsubscribe<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -697,7 +627,7 @@ pub struct Unsubscribe<'a> {
 }
 
 /// Unsubscribe acknowledgment
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UnsubscribeAck<'a> {
     /// Packet Identifier
     pub packet_id: PacketId,
@@ -706,7 +636,7 @@ pub struct UnsubscribeAck<'a> {
 }
 
 /// Disconnect notification
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Disconnect<'a> {
     /// Reason Code
     pub reason_code: Option<ReasonCode>,
@@ -715,7 +645,7 @@ pub struct Disconnect<'a> {
 }
 
 /// Authentication exchange
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Auth<'a> {
     /// Reason Code
     pub reason_code: Option<ReasonCode>,

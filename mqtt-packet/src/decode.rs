@@ -6,14 +6,17 @@ use core::u32;
 use nom::{
     bytes::complete::{tag, take, take_while_m_n},
     combinator::{all_consuming, cond, map, map_opt, map_res, opt, recognize, rest, verify},
-    error::{context, ParseError},
-    multi::{length_data, many1},
+    error::{context, ErrorKind::*, ParseError},
+    multi::{length_data, many0, many1},
     number::complete::{be_u16, be_u32, be_u8},
     sequence::{pair, tuple},
     IResult,
 };
 
-use crate::packet::*;
+use crate::{
+    packet::*,
+    props::{Expiry, PayloadFormat, Property, PropertyId},
+};
 
 impl FixedHeader {
     fn parse<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Self, E> {
@@ -61,6 +64,10 @@ fn varint<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], usi
     )(input)
 }
 
+fn boolean<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], bool, E> {
+    context("bool", map(be_u8, |b| b != 0))(input)
+}
+
 /// Binary Data is represented by a Two Byte Integer length which indicates the number of data bytes,
 /// followed by that number of bytes. Thus, the length of Binary Data is limited to the range of 0 to 65,535 Bytes.
 fn binary_data<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], &'a [u8], E> {
@@ -83,6 +90,13 @@ fn utf8_str_pair<'a, E: ParseError<&'a [u8]>>(
             map_res(length_data(be_u16), str::from_utf8),
             map_res(length_data(be_u16), str::from_utf8),
         )),
+    )(input)
+}
+
+fn interval<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Duration, E> {
+    context(
+        "interval",
+        map(be_u32, |secs| Duration::from_secs(u64::from(secs))),
     )(input)
 }
 
@@ -142,10 +156,29 @@ fn topic_filter<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8
 /// Each Subscription within a session has a different Topic Filter.
 fn subscription<'a, E: ParseError<&'a [u8]>>(
     input: &'a [u8],
-) -> IResult<&'a [u8], (&'a str, QoS), E> {
+) -> IResult<&'a [u8], Subscription<'a>, E> {
     context(
         "subscription",
-        tuple((topic_filter, context("QoS", map_res(be_u8, QoS::try_from)))),
+        map_res(
+            tuple((
+                topic_filter,
+                context("options", map_opt(be_u8, SubscriptionOptions::from_bits)),
+            )),
+            |(topic_filter, options)| -> Result<Subscription, E> {
+                Ok(Subscription {
+                    topic_filter,
+                    qos: QoS::try_from((options & SubscriptionOptions::QOS).bits())
+                        .map_err(|_| E::from_error_kind(input, MapRes))?,
+                    no_local: options.contains(SubscriptionOptions::NL),
+                    retain_as_published: options.contains(SubscriptionOptions::RAP),
+                    retain_handling: RetainHandling::try_from(
+                        (options & SubscriptionOptions::RETAIN_HANDLING).bits()
+                            >> Subscription::RETAIN_HANDLING_SHIFT,
+                    )
+                    .map_err(|_| E::from_error_kind(input, MapRes))?,
+                })
+            },
+        ),
     )(input)
 }
 
@@ -161,7 +194,7 @@ fn properties<'a, E: ParseError<&'a [u8]>>(
     input: &'a [u8],
 ) -> IResult<&'a [u8], Vec<Property<'a>>, E> {
     let (input, props) = length_data(varint)(input)?;
-    let (_, props) = all_consuming(many1(property))(props)?;
+    let (_, props) = all_consuming(many0(property))(props)?;
 
     Ok((input, props))
 }
@@ -174,39 +207,43 @@ fn property<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], P
             map_res(be_u8, PayloadFormat::try_from),
             Property::PayloadFormat,
         )(input),
-        PropertyId::MessageExpiryInterval => map(expiry, Property::MessageExpiryInterval)(input),
+        PropertyId::MessageExpiryInterval => map(interval, Property::MessageExpiryInterval)(input),
         PropertyId::ContentType => map(utf8_str, Property::ContentType)(input),
         PropertyId::ResponseTopic => map(utf8_str, Property::ResponseTopic)(input),
         PropertyId::CorrelationData => map(binary_data, Property::CorrelationData)(input),
-        PropertyId::SubscriptionId => map(varint, Property::SubscriptionId)(input),
+        PropertyId::SubscriptionId => map(varint, |n| Property::SubscriptionId(n as u32))(input),
         PropertyId::SessionExpiryInterval => map(expiry, Property::SessionExpiryInterval)(input),
         PropertyId::AssignedClientId => map(utf8_str, Property::AssignedClientId)(input),
         PropertyId::ServerKeepAlive => map(be_u16, Property::ServerKeepAlive)(input),
         PropertyId::AuthMethod => map(utf8_str, Property::AuthMethod)(input),
         PropertyId::AuthData => map(binary_data, Property::AuthData)(input),
-        PropertyId::RequestProblem => map(be_u8, Property::RequestProblem)(input),
-        PropertyId::WillDelayInterval => map(expiry, Property::WillDelayInterval)(input),
-        PropertyId::RequestResponse => map(be_u8, Property::RequestResponse)(input),
-        PropertyId::Response => map(utf8_str, Property::Response)(input),
+        PropertyId::RequestProblemInformation => {
+            map(boolean, Property::RequestProblemInformation)(input)
+        }
+        PropertyId::WillDelayInterval => map(interval, Property::WillDelayInterval)(input),
+        PropertyId::RequestResponseInformation => {
+            map(boolean, Property::RequestResponseInformation)(input)
+        }
+        PropertyId::ResponseInformation => map(utf8_str, Property::ResponseInformation)(input),
         PropertyId::ServerReference => map(utf8_str, Property::ServerReference)(input),
         PropertyId::Reason => map(utf8_str, Property::Reason)(input),
         PropertyId::ReceiveMaximum => map(be_u16, Property::ReceiveMaximum)(input),
         PropertyId::TopicAliasMaximum => map(be_u16, Property::TopicAliasMaximum)(input),
         PropertyId::TopicAlias => map(be_u16, Property::TopicAlias)(input),
         PropertyId::MaximumQoS => map(map_res(be_u8, QoS::try_from), Property::MaximumQoS)(input),
-        PropertyId::RetainAvailable => map(be_u8, |b| Property::RetainAvailable(b != 0))(input),
+        PropertyId::RetainAvailable => map(boolean, Property::RetainAvailable)(input),
         PropertyId::UserProperty => map(utf8_str_pair, |(name, value)| {
             Property::UserProperty(name, value)
         })(input),
         PropertyId::MaximumPacketSize => map(be_u32, Property::MaximumPacketSize)(input),
         PropertyId::WildcardSubscriptionAvailable => {
-            map(be_u8, |b| Property::WildcardSubscriptionAvailable(b != 0))(input)
+            map(boolean, Property::WildcardSubscriptionAvailable)(input)
         }
         PropertyId::SubscriptionIdAvailable => {
-            map(be_u8, |b| Property::SubscriptionIdAvailable(b != 0))(input)
+            map(boolean, Property::SubscriptionIdAvailable)(input)
         }
         PropertyId::SharedSubscriptionAvailable => {
-            map(be_u8, |b| Property::SharedSubscriptionAvailable(b != 0))(input)
+            map(boolean, Property::SharedSubscriptionAvailable)(input)
         }
     }
 }
@@ -338,17 +375,25 @@ impl Connect<'_> {
             client_id,
             cond(
                 flags.contains(ConnectFlags::LAST_WILL),
-                map(
-                    tuple((
-                        context("will topic", utf8_str),
-                        context("will message", binary_data),
-                    )),
-                    |(topic_name, message)| LastWill {
-                        qos: flags.qos(),
-                        retain: flags.contains(ConnectFlags::WILL_RETAIN),
-                        topic_name,
-                        message,
-                    },
+                context(
+                    "will",
+                    map(
+                        tuple((
+                            cond(
+                                protocol_version >= ProtocolVersion::V5,
+                                context("will properties", properties),
+                            ),
+                            context("will topic", utf8_str),
+                            context("will message", binary_data),
+                        )),
+                        |(properties, topic_name, message)| LastWill {
+                            qos: flags.qos(),
+                            retain: flags.contains(ConnectFlags::WILL_RETAIN),
+                            topic_name,
+                            message,
+                            properties,
+                        },
+                    ),
                 ),
             ),
             cond(
@@ -741,6 +786,7 @@ mod tests {
                         retain: false,
                         topic_name: "topic",
                         message: b"message",
+                        properties: None,
                     }),
                     username: None,
                     password: None,
@@ -749,8 +795,8 @@ mod tests {
         );
 
         assert_eq!(
-            Connect::parse::<()>(
-                b"\x00\x04MQTT\x05\x14\x00\x3C\x0A\x11\xff\xff\xff\xff\x27\x00\x00\x10\x00\x00\x0512345\x00\x05topic\x00\x07message"
+            Connect::parse::<VerboseError<&[u8]>>(
+                b"\x00\x04MQTT\x05\x14\x00\x3C\x0A\x11\xff\xff\xff\xff\x27\x00\x00\x10\x00\x00\x0512345\x00\x00\x05topic\x00\x07message"
             ),
             Ok((
                 &b""[..],
@@ -768,6 +814,7 @@ mod tests {
                         retain: false,
                         topic_name: "topic",
                         message: b"message",
+                        properties: Some(vec![]),
                     }),
                     username: None,
                     password: None,
@@ -968,7 +1015,18 @@ mod tests {
                 Subscribe {
                     packet_id: 0x1234,
                     properties: None,
-                    subscriptions: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce)],
+                    subscriptions: vec![
+                        Subscription {
+                            topic_filter: "test",
+                            qos: QoS::AtLeastOnce,
+                            ..Default::default()
+                        },
+                        Subscription {
+                            topic_filter: "filter",
+                            qos: QoS::ExactlyOnce,
+                            ..Default::default()
+                        }
+                    ],
                 }
             ))
         );
@@ -982,7 +1040,18 @@ mod tests {
                 Packet::Subscribe(Subscribe {
                     packet_id: 0x1234,
                     properties: None,
-                    subscriptions: vec![("test", QoS::AtLeastOnce), ("filter", QoS::ExactlyOnce)],
+                    subscriptions: vec![
+                        Subscription {
+                            topic_filter: "test",
+                            qos: QoS::AtLeastOnce,
+                            ..Default::default()
+                        },
+                        Subscription {
+                            topic_filter: "filter",
+                            qos: QoS::ExactlyOnce,
+                            ..Default::default()
+                        }
+                    ],
                 })
             ))
         );
@@ -1076,7 +1145,7 @@ mod tests {
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&[][..], Nom(Eof)),
-                    (&[][..], Context("QoS")),
+                    (&[][..], Context("options")),
                     (&[0, 0][..], Context("subscription")),
                     (&[0, 0][..], Nom(Many1)),
                     (b"\x42\x42\x00\x00", Context("Subscribe")),

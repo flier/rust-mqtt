@@ -9,6 +9,8 @@ extern crate bitflags;
 mod decode;
 mod encode;
 mod packet;
+mod props;
 
 pub use crate::encode::WriteTo;
 pub use crate::packet::*;
+pub use crate::props::*;

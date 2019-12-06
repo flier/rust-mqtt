@@ -1,98 +1,100 @@
-extern crate mqtt_proto as mqtt;
+// extern crate mqtt_proto as mqtt;
 
-use std::env;
-use std::iter::FromIterator;
-use std::net::SocketAddr;
-use std::process;
-use std::sync::{Arc, Mutex};
+// use std::env;
+// use std::iter::FromIterator;
+// use std::net::SocketAddr;
+// use std::process;
+// use std::sync::{Arc, Mutex};
 
-use failure::err_msg;
-use getopts::Options;
+// use failure::err_msg;
+// use getopts::Options;
 
-use tokio_proto::TcpServer;
+// use tokio_proto::TcpServer;
 
-use mqtt::{
-    errors::Result,
-    server::{InMemoryAuthenticator, InMemorySessionProvider, InMemoryTopicProvider, Server},
-};
+// use mqtt::{
+//     errors::Result,
+//     server::{InMemoryAuthenticator, InMemorySessionProvider, InMemoryTopicProvider, Server},
+// };
 
-struct Config {
-    addr: SocketAddr,
-    users: Vec<(String, Option<Vec<u8>>)>,
-}
+// struct Config {
+//     addr: SocketAddr,
+//     users: Vec<(String, Option<Vec<u8>>)>,
+// }
 
-impl Config {
-    fn authenticator(&self) -> Option<InMemoryAuthenticator> {
-        if self.users.is_empty() {
-            None
-        } else {
-            Some(InMemoryAuthenticator::from_iter(self.users.clone()))
-        }
-    }
-}
+// impl Config {
+//     fn authenticator(&self) -> Option<InMemoryAuthenticator> {
+//         if self.users.is_empty() {
+//             None
+//         } else {
+//             Some(InMemoryAuthenticator::from_iter(self.users.clone()))
+//         }
+//     }
+// }
 
-fn parse_cmdline() -> Result<Config> {
-    let args: Vec<String> = env::args().collect();
-    let program = args[0].clone();
+// fn parse_cmdline() -> Result<Config> {
+//     let args: Vec<String> = env::args().collect();
+//     let program = args[0].clone();
 
-    let mut opts = Options::new();
+//     let mut opts = Options::new();
 
-    opts.optflag("h", "help", "print this help menu");
-    opts.optopt("l", "listen", "listen on the address", "ADDR");
-    opts.optopt("u", "user", "add username with password", "USER:PASS");
+//     opts.optflag("h", "help", "print this help menu");
+//     opts.optopt("l", "listen", "listen on the address", "ADDR");
+//     opts.optopt("u", "user", "add username with password", "USER:PASS");
 
-    let matches = opts.parse(&args[1..])?;
+//     let matches = opts.parse(&args[1..])?;
 
-    if matches.opt_present("h") {
-        let brief = format!("Usage: {} [options]", program);
+//     if matches.opt_present("h") {
+//         let brief = format!("Usage: {} [options]", program);
 
-        print!("{}", opts.usage(&brief));
+//         print!("{}", opts.usage(&brief));
 
-        process::exit(0);
-    }
+//         process::exit(0);
+//     }
 
-    Ok(Config {
-        addr: matches
-            .opt_str("listen")
-            .ok_or_else(|| err_msg("missed listen"))?
-            .parse()?,
-        users: matches
-            .opt_strs("user")
-            .into_iter()
-            .map(|s| {
-                if let Some(off) = s.find(':') {
-                    let (username, password) = s.split_at(off);
-                    (
-                        username.to_owned(),
-                        Some(password.as_bytes()[1..].to_owned()),
-                    )
-                } else {
-                    (s, None)
-                }
-            })
-            .collect(),
-    })
-}
+//     Ok(Config {
+//         addr: matches
+//             .opt_str("listen")
+//             .ok_or_else(|| err_msg("missed listen"))?
+//             .parse()?,
+//         users: matches
+//             .opt_strs("user")
+//             .into_iter()
+//             .map(|s| {
+//                 if let Some(off) = s.find(':') {
+//                     let (username, password) = s.split_at(off);
+//                     (
+//                         username.to_owned(),
+//                         Some(password.as_bytes()[1..].to_owned()),
+//                     )
+//                 } else {
+//                     (s, None)
+//                 }
+//             })
+//             .collect(),
+//     })
+// }
 
-fn main() {
-    pretty_env_logger::init();
+// fn main() {
+//     pretty_env_logger::init();
 
-    let cfg = parse_cmdline().expect("fail to parse command line");
+//     let cfg = parse_cmdline().expect("fail to parse command line");
 
-    let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
-    let topic_provider = InMemoryTopicProvider::default();
-    let authenticator = cfg
-        .authenticator()
-        .map(|authenticator| Arc::new(Mutex::new(authenticator)));
+//     let session_provider = Arc::new(Mutex::new(InMemorySessionProvider::default()));
+//     let topic_provider = InMemoryTopicProvider::default();
+//     let authenticator = cfg
+//         .authenticator()
+//         .map(|authenticator| Arc::new(Mutex::new(authenticator)));
 
-    let server = TcpServer::new(mqtt::MQTT::default(), cfg.addr);
+//     let server = TcpServer::new(mqtt::MQTT::default(), cfg.addr);
 
-    // server.with_handle(move |handle| {
-    //     Server::with_authenticator(
-    //         handle,
-    //         Arc::clone(&session_provider),
-    //         topic_provider.clone(),
-    //         authenticator.clone(),
-    //     )
-    // });
-}
+//     // server.with_handle(move |handle| {
+//     //     Server::with_authenticator(
+//     //         handle,
+//     //         Arc::clone(&session_provider),
+//     //         topic_provider.clone(),
+//     //         authenticator.clone(),
+//     //     )
+//     // });
+// }
+
+fn main() {}
