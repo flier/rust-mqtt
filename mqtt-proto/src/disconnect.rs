@@ -7,7 +7,7 @@ pub use crate::{
 };
 
 /// Disconnect from the broker.
-pub fn disconnect<'a, V>() -> Disconnect<'a, V> {
+pub fn disconnect<'a, P>() -> Disconnect<'a, P> {
     Disconnect(
         packet::Disconnect {
             reason_code: None,
@@ -17,7 +17,12 @@ pub fn disconnect<'a, V>() -> Disconnect<'a, V> {
     )
 }
 
-impl<'a, V> Deref for Disconnect<'a, V> {
+/// Disconnect notification
+#[repr(transparent)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Disconnect<'a, P>(packet::Disconnect<'a>, PhantomData<P>);
+
+impl<'a, P> Deref for Disconnect<'a, P> {
     type Target = packet::Disconnect<'a>;
 
     fn deref(&self) -> &Self::Target {
@@ -25,19 +30,14 @@ impl<'a, V> Deref for Disconnect<'a, V> {
     }
 }
 
-impl<'a, V> DerefMut for Disconnect<'a, V> {
+impl<'a, P> DerefMut for Disconnect<'a, P> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-/// Disconnect notification
-#[repr(transparent)]
-#[derive(Clone, Debug, PartialEq)]
-pub struct Disconnect<'a, V>(packet::Disconnect<'a>, PhantomData<V>);
-
-impl<'a, V> From<Disconnect<'a, V>> for Packet<'a> {
-    fn from(disconnect: Disconnect<'a, V>) -> packet::Packet<'a> {
+impl<'a, P> From<Disconnect<'a, P>> for Packet<'a> {
+    fn from(disconnect: Disconnect<'a, P>) -> packet::Packet<'a> {
         Packet::Disconnect(disconnect.0)
     }
 }

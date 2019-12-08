@@ -11,9 +11,11 @@ extern crate mqtt_packet as packet;
 
 mod connect;
 mod disconnect;
+mod subscribe;
 
 pub use crate::connect::{connect, Connect};
 pub use crate::disconnect::{disconnect, Disconnect};
+pub use crate::subscribe::{subscribe, Subscribe};
 
 /// MQTT protocol
 pub trait Protocol {
