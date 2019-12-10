@@ -4,5 +4,6 @@ members = [
     "mqtt-fuzz",
     "mqtt-packet",
     "mqtt-proto",
+    "mqtt-client",
     "mqtt",
 ]

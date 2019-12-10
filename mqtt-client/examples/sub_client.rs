@@ -4,20 +4,17 @@ extern crate log;
 use core::marker::PhantomData;
 
 use std::io;
-use std::net::{TcpStream, ToSocketAddrs};
 use std::process;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use hexplay::HexViewBuilder;
 use structopt::StructOpt;
 use url::Url;
 
-use mqtt_proto::{
-    mqtt::{ProtocolVersion, QoS},
-    packet::{self, Packet, WriteTo},
-    *,
-};
+use mqtt_client::sync::Connector;
+use mqtt_core::{ProtocolVersion, QoS};
+use mqtt_packet::{self, Packet};
+use mqtt_proto::*;
 
 const MAX_PACKET_SIZE: usize = 4096;
 
@@ -138,34 +135,6 @@ fn parse_qos(s: &str) -> Result<QoS> {
     }
 }
 
-fn main() -> Result<()> {
-    pretty_env_logger::init();
-
-    let opt = Opt::from_args();
-    debug!("{:#?}", opt);
-
-    let c = connect(opt.server()?)?;
-
-    match opt.protocol_version {
-        ProtocolVersion::V311 => run::<MQTT_V311, _>(c, &opt)?,
-        ProtocolVersion::V5 => run::<MQTT_V5, _>(c, &opt)?,
-    }
-
-    Ok(())
-}
-
-fn run<P, T>(c: Connected<T>, opt: &Opt) -> Result<()>
-where
-    T: io::Read + io::Write,
-    P: Protocol,
-{
-    let session = c.handshake::<P>(opt)?;
-
-    session.disconnect()?;
-
-    Ok(())
-}
-
 impl Opt {
     fn server(&self) -> io::Result<(&str, u16)> {
         if let Some(ref url) = self.url {
@@ -196,142 +165,54 @@ impl Opt {
     }
 }
 
-fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Connected<TcpStream>> {
-    TcpStream::connect(addr).map(Connected)
+fn main() -> Result<()> {
+    pretty_env_logger::init();
+
+    let opt = Opt::from_args();
+    debug!("{:#?}", opt);
+
+    match opt.protocol_version {
+        ProtocolVersion::V311 => run::<MQTT_V311>(opt),
+        ProtocolVersion::V5 => run::<MQTT_V5>(opt),
+    }
 }
 
-struct Connected<T>(T);
+fn run<P>(opt: Opt) -> Result<()>
+where
+    P: Protocol,
+{
+    let client_id = opt.client_id();
+    let mut connector = Connector::<_, P>::new(opt.server()?);
 
-impl<T> Connected<T> {
-    fn handshake<P: Protocol>(self, opt: &Opt) -> Result<Session<T, P>>
-    where
-        T: io::Read + io::Write,
+    connector.keep_alive = opt.keep_alive;
+    connector.client_id = client_id.as_str();
+
+    if let Some(ref username) = opt.username {
+        connector.with_username(&username);
+
+        if let Some(ref password) = opt.password {
+            connector.with_password(&password);
+        }
+    }
+
+    if let (Some(topic_name), Some(payload)) = (opt.will_topic.as_ref(), opt.will_payload.as_ref())
     {
-        let Connected(mut stream) = self;
-        let client_id = opt.client_id();
-        let mut connect =
-            mqtt_proto::connect::<P>(Duration::from_secs(opt.keep_alive as u64), &client_id);
-
-        if let Some(ref username) = opt.username {
-            connect.with_username(&username);
-
-            if let Some(ref password) = opt.password {
-                connect.with_password(&password);
-            }
-        }
-
-        if let (Some(topic_name), Some(payload)) =
-            (opt.will_topic.as_ref(), opt.will_payload.as_ref())
-        {
-            connect.with_last_will(
-                topic_name,
-                payload.as_bytes(),
-                opt.will_qos,
-                opt.will_retain,
-            );
-        }
-
-        stream.send(connect)?;
-
-        let mut buf = [0; MAX_PACKET_SIZE];
-        let (remaining, packet) = stream.receive(&mut buf, opt.protocol_version)?;
-
-        if let Packet::ConnectAck(connect_ack) = packet {
-            connect_ack
-                .return_code
-                .ok()
-                .context("handshake")
-                .map(|_| Session::new(stream))
-        } else {
-            Err(anyhow!("unexpected packet: {:?}", packet))
-        }
-    }
-}
-
-struct Session<T, P> {
-    stream: T,
-    phantom: PhantomData<P>,
-    packet_id: u16,
-}
-
-impl<T, P> Session<T, P> {
-    pub fn new(stream: T) -> Self {
-        Session {
-            stream,
-            phantom: PhantomData,
-            packet_id: 0,
-        }
-    }
-
-    fn next_packet_id(&mut self) -> u16 {
-        let next = self.packet_id;
-        self.packet_id = self.packet_id.wrapping_add(1);
-        next
-    }
-
-    pub fn disconnect(mut self) -> io::Result<()>
-    where
-        T: io::Write,
-    {
-        self.stream.send(disconnect::<P>())
-    }
-
-    pub fn subscribe(&mut self, opt: &Opt) -> Result<()>
-    where
-        T: io::Read + io::Write,
-    {
-        let packet_id = self.next_packet_id();
-
-        Ok(())
-    }
-}
-
-trait WriteExt {
-    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()>;
-}
-
-impl<T: io::Write> WriteExt for T {
-    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()> {
-        let packet = packet.into();
-        let mut buf = vec![];
-        packet.write_to(&mut buf);
-        self.write_all(&buf)?;
-        debug!(
-            "write {:#?} packet to {} bytes:\n{}",
-            packet,
-            buf.len(),
-            HexViewBuilder::new(&buf).finish()
+        connector.with_last_will(
+            topic_name,
+            payload.as_bytes(),
+            opt.will_qos,
+            opt.will_retain,
         );
-        Ok(())
     }
-}
 
-trait ReadExt {
-    fn receive<'a>(
-        &mut self,
-        buf: &'a mut [u8],
-        protocol_version: ProtocolVersion,
-    ) -> Result<(&'a [u8], Packet<'a>)>;
-}
+    let mut client = connector.connect()?;
 
-impl<T: io::Read> ReadExt for T {
-    fn receive<'a>(
-        &mut self,
-        buf: &'a mut [u8],
-        protocol_version: ProtocolVersion,
-    ) -> Result<(&'a [u8], Packet<'a>)> {
-        let read = self.read(buf)?;
-        let input = &buf[..read];
+    client.disconnect()?;
 
-        let (remaining, packet) = packet::parse::<()>(input, protocol_version)
-            .map_err(|err| anyhow!("parse packet failed, {:?}", err))?;
-        debug!(
-            "read {:#?} packet from {} bytes:\n{}",
-            packet,
-            read,
-            HexViewBuilder::new(input).finish()
-        );
+    // let client = connect()
+    // let session = c.handshake::<P>(opt)?;
 
-        Ok((remaining, packet))
-    }
+    // session.disconnect()?;
+
+    Ok(())
 }

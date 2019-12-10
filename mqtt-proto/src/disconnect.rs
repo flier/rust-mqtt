@@ -3,20 +3,8 @@ use core::ops::{Deref, DerefMut};
 
 pub use crate::{
     mqtt::{Expiry, LastWill, Property, ProtocolVersion, QoS, ReasonCode},
-    packet::Packet,
     MQTT_V5,
 };
-
-/// Disconnect from the broker.
-pub fn disconnect<'a, P>() -> Disconnect<'a, P> {
-    Disconnect(
-        mqtt::Disconnect {
-            reason_code: None,
-            properties: None,
-        },
-        PhantomData,
-    )
-}
 
 /// Disconnect notification
 #[repr(transparent)]
@@ -37,9 +25,22 @@ impl<'a, P> DerefMut for Disconnect<'a, P> {
     }
 }
 
-impl<'a, P> From<Disconnect<'a, P>> for Packet<'a> {
-    fn from(disconnect: Disconnect<'a, P>) -> Packet<'a> {
-        Packet::Disconnect(disconnect.0)
+impl<'a, P> Into<mqtt::Disconnect<'a>> for Disconnect<'a, P> {
+    fn into(self) -> mqtt::Disconnect<'a> {
+        self.0
+    }
+}
+
+impl<'a, P> Disconnect<'a, P> {
+    /// Disconnect from the broker.
+    pub fn new() -> Disconnect<'a, P> {
+        Disconnect(
+            mqtt::Disconnect {
+                reason_code: None,
+                properties: None,
+            },
+            PhantomData,
+        )
     }
 }
 

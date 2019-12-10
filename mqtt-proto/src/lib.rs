@@ -8,14 +8,13 @@
 // extern crate serde_derive;
 
 pub extern crate mqtt_core as mqtt;
-pub extern crate mqtt_packet as packet;
 
 mod connect;
 mod disconnect;
 mod subscribe;
 
-pub use crate::connect::{connect, Connect};
-pub use crate::disconnect::{disconnect, Disconnect};
+pub use crate::connect::Connect;
+pub use crate::disconnect::Disconnect;
 pub use crate::subscribe::{subscribe, Subscribe};
 
 use crate::mqtt::ProtocolVersion;

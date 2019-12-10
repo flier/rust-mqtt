@@ -1,29 +1,29 @@
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate failure;
-extern crate bytes;
-extern crate nom;
-extern crate rotor;
-extern crate slab;
+// #[macro_use]
+// extern crate log;
+// #[macro_use]
+// extern crate failure;
+// extern crate bytes;
+// extern crate nom;
+// extern crate rotor;
+// extern crate slab;
 
-pub extern crate mqtt_core as mqtt;
-pub extern crate mqtt_packet as packet;
-pub extern crate mqtt_proto as proto;
+// pub extern crate mqtt_core as mqtt;
+// pub extern crate mqtt_packet as packet;
+// pub extern crate mqtt_proto as proto;
 
-pub mod client;
-pub mod errors;
-pub mod server;
-pub mod transport;
+// pub mod client;
+// pub mod errors;
+// pub mod server;
+// pub mod transport;
 
-/// TCP ports 1883 was registered with IANA for MQTT non TLS communication respectively.
-pub const TCP_PORT: u16 = 1883;
-/// TCP ports 8883 was registered with IANA for MQTT TLS communication respectively.
-pub const SSL_PORT: u16 = 8883;
+// /// TCP ports 1883 was registered with IANA for MQTT non TLS communication respectively.
+// pub const TCP_PORT: u16 = 1883;
+// /// TCP ports 8883 was registered with IANA for MQTT TLS communication respectively.
+// pub const SSL_PORT: u16 = 8883;
 
-#[macro_export]
-macro_rules! topic {
-    ($s:expr) => {
-        $s.parse::<$crate::proto::Filter>().unwrap()
-    };
-}
+// #[macro_export]
+// macro_rules! topic {
+//     ($s:expr) => {
+//         $s.parse::<$crate::proto::Filter>().unwrap()
+//     };
+// }

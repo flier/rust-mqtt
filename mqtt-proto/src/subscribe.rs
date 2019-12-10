@@ -3,7 +3,6 @@ use core::ops::{Deref, DerefMut};
 
 use crate::{
     mqtt::{Property, ProtocolVersion, Subscription, SubscriptionId},
-    packet::Packet,
     Protocol, MQTT_V5,
 };
 
@@ -44,12 +43,6 @@ impl<'a, P> Deref for Subscribe<'a, P> {
 impl<'a, P> DerefMut for Subscribe<'a, P> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl<'a, P> From<Subscribe<'a, P>> for Packet<'a> {
-    fn from(subscribe: Subscribe<'a, P>) -> packet::Packet<'a> {
-        Packet::Subscribe(subscribe.0)
     }
 }
 

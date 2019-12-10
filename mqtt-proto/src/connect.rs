@@ -4,33 +4,8 @@ use core::time::Duration;
 
 use crate::{
     mqtt::{Expiry, PayloadFormat, Property, ProtocolVersion, QoS},
-    packet::Packet,
     Protocol, MQTT_V5,
 };
-
-/// Connect to an MQTT broker.
-pub fn connect<P>(keep_alive: Duration, client_id: &str) -> Connect<P>
-where
-    P: crate::Protocol,
-{
-    Connect(
-        mqtt::Connect {
-            protocol_version: P::VERSION,
-            clean_session: true,
-            keep_alive: keep_alive.as_secs() as u16,
-            properties: if P::VERSION >= ProtocolVersion::V5 {
-                Some(Vec::new())
-            } else {
-                None
-            },
-            client_id,
-            last_will: None,
-            username: None,
-            password: None,
-        },
-        PhantomData,
-    )
-}
 
 /// Client request to connect to Server
 #[repr(transparent)]
@@ -51,13 +26,37 @@ impl<'a, P> DerefMut for Connect<'a, P> {
     }
 }
 
-impl<'a, P> From<Connect<'a, P>> for Packet<'a> {
-    fn from(connect: Connect<'a, P>) -> Packet<'a> {
-        Packet::Connect(connect.0)
+impl<'a, P> Into<mqtt::Connect<'a>> for Connect<'a, P> {
+    fn into(self) -> mqtt::Connect<'a> {
+        self.0
     }
 }
 
 impl<'a, P: Protocol> Connect<'a, P> {
+    /// Connect to an MQTT broker.
+    pub fn new(keep_alive: Duration, client_id: &str) -> Connect<P>
+    where
+        P: crate::Protocol,
+    {
+        Connect(
+            mqtt::Connect {
+                protocol_version: P::VERSION,
+                clean_session: true,
+                keep_alive: keep_alive.as_secs() as u16,
+                properties: if P::VERSION >= ProtocolVersion::V5 {
+                    Some(Vec::new())
+                } else {
+                    None
+                },
+                client_id,
+                last_will: None,
+                username: None,
+                password: None,
+            },
+            PhantomData,
+        )
+    }
+
     pub fn last_will(&'a mut self) -> Option<LastWill<'a, P>> {
         self.0
             .last_will
