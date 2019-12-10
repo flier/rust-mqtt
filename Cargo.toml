@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "mqtt-core",
     "mqtt-fuzz",
     "mqtt-packet",
     "mqtt-proto",

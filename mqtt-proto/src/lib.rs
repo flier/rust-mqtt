@@ -1,13 +1,14 @@
 #![allow(non_camel_case_types)]
 
-#[macro_use]
-extern crate log;
+// #[macro_use]
+// extern crate log;
 // #[macro_use]
 // extern crate failure;
 // #[macro_use]
 // extern crate serde_derive;
 
-extern crate mqtt_packet as packet;
+pub extern crate mqtt_core as mqtt;
+pub extern crate mqtt_packet as packet;
 
 mod connect;
 mod disconnect;
@@ -17,9 +18,11 @@ pub use crate::connect::{connect, Connect};
 pub use crate::disconnect::{disconnect, Disconnect};
 pub use crate::subscribe::{subscribe, Subscribe};
 
+use crate::mqtt::ProtocolVersion;
+
 /// MQTT protocol
 pub trait Protocol {
-    const VERSION: packet::ProtocolVersion;
+    const VERSION: ProtocolVersion;
 }
 
 /// MQTT v3.1.1
@@ -27,7 +30,7 @@ pub trait Protocol {
 pub struct MQTT_V311;
 
 impl Protocol for MQTT_V311 {
-    const VERSION: packet::ProtocolVersion = packet::ProtocolVersion::V311;
+    const VERSION: ProtocolVersion = ProtocolVersion::V311;
 }
 
 /// MQTT v5.0
@@ -35,7 +38,7 @@ impl Protocol for MQTT_V311 {
 pub struct MQTT_V5;
 
 impl Protocol for MQTT_V5 {
-    const VERSION: packet::ProtocolVersion = packet::ProtocolVersion::V5;
+    const VERSION: ProtocolVersion = ProtocolVersion::V5;
 }
 
 // #[cfg(test)]

@@ -2,7 +2,8 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
 use crate::{
-    packet::{Packet, Property, ProtocolVersion, Subscription, SubscriptionId},
+    mqtt::{Property, ProtocolVersion, Subscription, SubscriptionId},
+    packet::Packet,
     Protocol, MQTT_V5,
 };
 
@@ -14,7 +15,7 @@ where
     T: Into<Subscription<'a>>,
 {
     Subscribe(
-        packet::Subscribe {
+        mqtt::Subscribe {
             packet_id,
             properties: if P::VERSION >= ProtocolVersion::V5 {
                 Some(Vec::new())
@@ -30,10 +31,10 @@ where
 /// Subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
 #[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
-pub struct Subscribe<'a, P>(packet::Subscribe<'a>, PhantomData<P>);
+pub struct Subscribe<'a, P>(mqtt::Subscribe<'a>, PhantomData<P>);
 
 impl<'a, P> Deref for Subscribe<'a, P> {
-    type Target = packet::Subscribe<'a>;
+    type Target = mqtt::Subscribe<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

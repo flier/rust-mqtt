@@ -13,8 +13,11 @@ use hexplay::HexViewBuilder;
 use structopt::StructOpt;
 use url::Url;
 
-use mqtt_packet::*;
-use mqtt_proto::*;
+use mqtt_proto::{
+    mqtt::{ProtocolVersion, QoS},
+    packet::{self, Packet, WriteTo},
+    *,
+};
 
 const MAX_PACKET_SIZE: usize = 4096;
 
@@ -320,7 +323,7 @@ impl<T: io::Read> ReadExt for T {
         let read = self.read(buf)?;
         let input = &buf[..read];
 
-        let (remaining, packet) = Packet::parse::<()>(input, protocol_version)
+        let (remaining, packet) = packet::parse::<()>(input, protocol_version)
             .map_err(|err| anyhow!("parse packet failed, {:?}", err))?;
         debug!(
             "read {:#?} packet from {} bytes:\n{}",

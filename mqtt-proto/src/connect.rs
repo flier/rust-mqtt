@@ -3,7 +3,8 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
 use crate::{
-    packet::{Expiry, Packet, PayloadFormat, Property, ProtocolVersion, QoS},
+    mqtt::{Expiry, PayloadFormat, Property, ProtocolVersion, QoS},
+    packet::Packet,
     Protocol, MQTT_V5,
 };
 
@@ -13,7 +14,7 @@ where
     P: crate::Protocol,
 {
     Connect(
-        packet::Connect {
+        mqtt::Connect {
             protocol_version: P::VERSION,
             clean_session: true,
             keep_alive: keep_alive.as_secs() as u16,
@@ -34,10 +35,10 @@ where
 /// Client request to connect to Server
 #[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
-pub struct Connect<'a, P>(packet::Connect<'a>, PhantomData<P>);
+pub struct Connect<'a, P>(mqtt::Connect<'a>, PhantomData<P>);
 
 impl<'a, P> Deref for Connect<'a, P> {
-    type Target = packet::Connect<'a>;
+    type Target = mqtt::Connect<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -78,7 +79,7 @@ impl<'a, P: Protocol> Connect<'a, P> {
         qos: QoS,
         retain: bool,
     ) -> &mut Self {
-        self.last_will = Some(packet::LastWill {
+        self.last_will = Some(mqtt::LastWill {
             qos,
             retain,
             topic_name,
@@ -173,10 +174,10 @@ impl<'a> Connect<'a, MQTT_V5> {
 /// Connection Will
 #[repr(transparent)]
 #[derive(Debug)]
-pub struct LastWill<'a, P>(&'a mut packet::LastWill<'a>, PhantomData<P>);
+pub struct LastWill<'a, P>(&'a mut mqtt::LastWill<'a>, PhantomData<P>);
 
 impl<'a, P> Deref for LastWill<'a, P> {
-    type Target = packet::LastWill<'a>;
+    type Target = mqtt::LastWill<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

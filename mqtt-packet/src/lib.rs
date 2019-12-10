@@ -6,11 +6,12 @@
 #[macro_use]
 extern crate bitflags;
 
+extern crate mqtt_core as mqtt;
+
 mod decode;
 mod encode;
 mod packet;
-mod props;
 
+pub use crate::decode::parse;
 pub use crate::encode::WriteTo;
 pub use crate::packet::*;
-pub use crate::props::*;

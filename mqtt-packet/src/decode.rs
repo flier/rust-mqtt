@@ -13,10 +13,8 @@ use nom::{
     IResult,
 };
 
-use crate::{
-    packet::*,
-    props::{Expiry, PayloadFormat, Property, PropertyId},
-};
+use crate::mqtt::*;
+use crate::packet::*;
 
 impl FixedHeader {
     fn parse<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Self, E> {
@@ -173,7 +171,7 @@ fn subscription<'a, E: ParseError<&'a [u8]>>(
                     retain_as_published: options.contains(SubscriptionOptions::RAP),
                     retain_handling: RetainHandling::try_from(
                         (options & SubscriptionOptions::RETAIN_HANDLING).bits()
-                            >> Subscription::RETAIN_HANDLING_SHIFT,
+                            >> SubscriptionOptions::RETAIN_HANDLING_SHIFT,
                     )
                     .map_err(|_| E::from_error_kind(input, MapRes))?,
                 })
@@ -248,430 +246,394 @@ fn property<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], P
     }
 }
 
-impl Packet<'_> {
-    /// Parses the bytes slice into Packet type.
-    pub fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], Packet<'a>, E> {
-        let (input, fixed_header) = FixedHeader::parse(input)?;
-        let (input, remaining) = take(fixed_header.remaining_length)(input)?;
+/// Parses the bytes slice into Packet type.
+pub fn parse<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], Packet<'a>, E> {
+    let (input, fixed_header) = FixedHeader::parse(input)?;
+    let (input, remaining) = take(fixed_header.remaining_length)(input)?;
 
-        match fixed_header.packet_type {
-            Type::CONNECT => context(
-                "Connect",
-                all_consuming(map(Connect::parse, Packet::Connect)),
-            )(remaining),
-            Type::CONNACK => context(
-                "ConnectAck",
-                all_consuming(map(
-                    |input| ConnectAck::parse(input, protocol_version),
-                    Packet::ConnectAck,
-                )),
-            )(remaining),
-            Type::PUBLISH => context(
-                "Publish",
-                all_consuming(map(
-                    |input| {
-                        Publish::parse(
-                            input,
-                            protocol_version,
-                            PublishFlags::from_bits_truncate(fixed_header.packet_flags),
-                        )
-                    },
-                    Packet::Publish,
-                )),
-            )(remaining),
-            Type::PUBACK => context(
-                "PublishAck",
-                all_consuming(map(
-                    |input| PublishAck::parse(input, protocol_version),
-                    Packet::PublishAck,
-                )),
-            )(remaining),
-            Type::PUBREC => context(
-                "PublishReceived",
-                all_consuming(map(
-                    |input| PublishReceived::parse(input, protocol_version),
-                    Packet::PublishReceived,
-                )),
-            )(remaining),
-            Type::PUBREL => context(
-                "PublishRelease",
-                all_consuming(map(
-                    |input| PublishRelease::parse(input, protocol_version),
-                    Packet::PublishRelease,
-                )),
-            )(remaining),
-            Type::PUBCOMP => context(
-                "PublishComplete",
-                all_consuming(map(
-                    |input| PublishComplete::parse(input, protocol_version),
-                    Packet::PublishComplete,
-                )),
-            )(remaining),
-            Type::SUBSCRIBE => context(
-                "Subscribe",
-                all_consuming(map(
-                    |input| Subscribe::parse(input, protocol_version),
-                    Packet::Subscribe,
-                )),
-            )(remaining),
-            Type::SUBACK => context(
-                "SubscribeAck",
-                all_consuming(map(
-                    |input| SubscribeAck::parse(input, protocol_version),
-                    Packet::SubscribeAck,
-                )),
-            )(remaining),
-            Type::UNSUBSCRIBE => context(
-                "Unsubscribe",
-                all_consuming(map(
-                    |input| Unsubscribe::parse(input, protocol_version),
-                    Packet::Unsubscribe,
-                )),
-            )(remaining),
-            Type::UNSUBACK => context(
-                "UnsubscribeAck",
-                all_consuming(map(
-                    |input| UnsubscribeAck::parse(input, protocol_version),
-                    Packet::UnsubscribeAck,
-                )),
-            )(remaining),
-            Type::PINGREQ => context("Ping", map(all_consuming(rest), |_| Packet::Ping))(remaining),
-            Type::PINGRESP => {
-                context("Pong", map(all_consuming(rest), |_| Packet::Pong))(remaining)
-            }
-            Type::DISCONNECT => context(
-                "Disconnect",
-                all_consuming(map(
-                    |input| Disconnect::parse(input, protocol_version),
-                    Packet::Disconnect,
-                )),
-            )(remaining),
-            Type::AUTH => context(
-                "Auth",
-                all_consuming(map(|input| Auth::parse(input), Packet::Auth)),
-            )(remaining),
+    match fixed_header.packet_type {
+        Type::CONNECT => {
+            context("Connect", all_consuming(map(connect, Packet::Connect)))(remaining)
         }
-        .map(|(_, packet)| (input, packet))
+        Type::CONNACK => context(
+            "ConnectAck",
+            all_consuming(map(
+                |input| connect_ack(input, protocol_version),
+                Packet::ConnectAck,
+            )),
+        )(remaining),
+        Type::PUBLISH => context(
+            "Publish",
+            all_consuming(map(
+                |input| {
+                    publish(
+                        input,
+                        protocol_version,
+                        PublishFlags::from_bits_truncate(fixed_header.packet_flags),
+                    )
+                },
+                Packet::Publish,
+            )),
+        )(remaining),
+        Type::PUBACK => context(
+            "PublishAck",
+            all_consuming(map(
+                |input| publish_ack(input, protocol_version),
+                Packet::PublishAck,
+            )),
+        )(remaining),
+        Type::PUBREC => context(
+            "PublishReceived",
+            all_consuming(map(
+                |input| publish_received(input, protocol_version),
+                Packet::PublishReceived,
+            )),
+        )(remaining),
+        Type::PUBREL => context(
+            "PublishRelease",
+            all_consuming(map(
+                |input| publish_release(input, protocol_version),
+                Packet::PublishRelease,
+            )),
+        )(remaining),
+        Type::PUBCOMP => context(
+            "PublishComplete",
+            all_consuming(map(
+                |input| publish_complete(input, protocol_version),
+                Packet::PublishComplete,
+            )),
+        )(remaining),
+        Type::SUBSCRIBE => context(
+            "Subscribe",
+            all_consuming(map(
+                |input| subscribe(input, protocol_version),
+                Packet::Subscribe,
+            )),
+        )(remaining),
+        Type::SUBACK => context(
+            "SubscribeAck",
+            all_consuming(map(
+                |input| subscribe_ack(input, protocol_version),
+                Packet::SubscribeAck,
+            )),
+        )(remaining),
+        Type::UNSUBSCRIBE => context(
+            "Unsubscribe",
+            all_consuming(map(
+                |input| unsubscribe(input, protocol_version),
+                Packet::Unsubscribe,
+            )),
+        )(remaining),
+        Type::UNSUBACK => context(
+            "UnsubscribeAck",
+            all_consuming(map(
+                |input| unsubscribe_ack(input, protocol_version),
+                Packet::UnsubscribeAck,
+            )),
+        )(remaining),
+        Type::PINGREQ => context("Ping", map(all_consuming(rest), |_| Packet::Ping))(remaining),
+        Type::PINGRESP => context("Pong", map(all_consuming(rest), |_| Packet::Pong))(remaining),
+        Type::DISCONNECT => context(
+            "Disconnect",
+            all_consuming(map(
+                |input| disconnect(input, protocol_version),
+                Packet::Disconnect,
+            )),
+        )(remaining),
+        Type::AUTH => context("Auth", all_consuming(map(auth, Packet::Auth)))(remaining),
     }
+    .map(|(_, packet)| (input, packet))
 }
 
-impl Connect<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Connect<'a>, E> {
-        let (input, (_, protocol_version, flags, keep_alive)) = tuple((
-            context("protocol name", tag(PROTOCOL_NAME)),
-            context(
-                "protocol version",
-                map_res(be_u8, ProtocolVersion::try_from),
-            ),
-            context("flags", map_opt(be_u8, ConnectFlags::from_bits)),
-            context("keepalive", be_u16),
-        ))(input)?;
+fn connect<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Connect<'a>, E> {
+    let (input, (_, protocol_version, flags, keep_alive)) = tuple((
+        context("protocol name", tag(PROTOCOL_NAME)),
+        context(
+            "protocol version",
+            map_res(be_u8, ProtocolVersion::try_from),
+        ),
+        context("flags", map_opt(be_u8, ConnectFlags::from_bits)),
+        context("keepalive", be_u16),
+    ))(input)?;
 
-        let (input, (properties, client_id, last_will, username, password)) = tuple((
-            cond(protocol_version >= ProtocolVersion::V5, properties),
-            client_id,
-            cond(
-                flags.contains(ConnectFlags::LAST_WILL),
-                context(
-                    "will",
-                    map(
-                        tuple((
-                            cond(
-                                protocol_version >= ProtocolVersion::V5,
-                                context("will properties", properties),
-                            ),
-                            context("will topic", utf8_str),
-                            context("will message", binary_data),
-                        )),
-                        |(properties, topic_name, message)| LastWill {
-                            qos: flags.qos(),
-                            retain: flags.contains(ConnectFlags::WILL_RETAIN),
-                            topic_name,
-                            message,
-                            properties,
-                        },
-                    ),
+    let (input, (properties, client_id, last_will, username, password)) = tuple((
+        cond(protocol_version >= ProtocolVersion::V5, properties),
+        client_id,
+        cond(
+            flags.contains(ConnectFlags::LAST_WILL),
+            context(
+                "will",
+                map(
+                    tuple((
+                        cond(
+                            protocol_version >= ProtocolVersion::V5,
+                            context("will properties", properties),
+                        ),
+                        context("will topic", utf8_str),
+                        context("will message", binary_data),
+                    )),
+                    |(properties, topic_name, message)| LastWill {
+                        qos: flags.qos(),
+                        retain: flags.contains(ConnectFlags::WILL_RETAIN),
+                        topic_name,
+                        message,
+                        properties,
+                    },
                 ),
             ),
-            cond(
-                flags.contains(ConnectFlags::USERNAME),
-                context("username", utf8_str),
-            ),
-            cond(
-                flags.contains(ConnectFlags::PASSWORD),
-                context("password", binary_data),
-            ),
-        ))(input)?;
+        ),
+        cond(
+            flags.contains(ConnectFlags::USERNAME),
+            context("username", utf8_str),
+        ),
+        cond(
+            flags.contains(ConnectFlags::PASSWORD),
+            context("password", binary_data),
+        ),
+    ))(input)?;
 
-        Ok((
-            input,
-            Connect {
-                protocol_version,
-                clean_session: flags.contains(ConnectFlags::CLEAN_SESSION),
-                keep_alive,
-                properties,
-                client_id,
-                last_will,
-                username,
-                password,
-            },
-        ))
-    }
+    Ok((
+        input,
+        Connect {
+            protocol_version,
+            clean_session: flags.contains(ConnectFlags::CLEAN_SESSION),
+            keep_alive,
+            properties,
+            client_id,
+            last_will,
+            username,
+            password,
+        },
+    ))
 }
 
-impl ConnectAck<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], ConnectAck<'a>, E> {
-        map(
-            tuple((
-                context("flags", map_opt(be_u8, ConnectAckFlags::from_bits)),
-                context("return code", map_res(be_u8, ConnectReturnCode::try_from)),
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-            )),
-            |(flags, return_code, properties)| ConnectAck {
-                session_present: flags.contains(ConnectAckFlags::SESSION_PRESENT),
-                return_code,
-                properties,
-            },
-        )(input)
-    }
-}
-
-impl Publish<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-        flags: PublishFlags,
-    ) -> IResult<&'a [u8], Publish<'a>, E> {
-        let dup = flags.contains(PublishFlags::DUP);
-        let qos = flags.qos();
-        let retain = flags.contains(PublishFlags::RETAIN);
-        let (input, (topic_name, packet_id, properties, payload)) = tuple((
-            topic_name,
-            cond(qos >= QoS::AtLeastOnce, packet_id),
+fn connect_ack<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], ConnectAck<'a>, E> {
+    map(
+        tuple((
+            context("flags", map_opt(be_u8, ConnectAckFlags::from_bits)),
+            context("return code", map_res(be_u8, ConnectReturnCode::try_from)),
             cond(protocol_version >= ProtocolVersion::V5, properties),
-            rest,
-        ))(input)?;
-
-        Ok((
-            input,
-            Publish {
-                dup,
-                qos,
-                retain,
-                topic_name,
-                packet_id,
-                properties,
-                payload,
-            },
-        ))
-    }
+        )),
+        |(flags, return_code, properties)| ConnectAck {
+            session_present: flags.contains(ConnectAckFlags::SESSION_PRESENT),
+            return_code,
+            properties,
+        },
+    )(input)
 }
 
-impl PublishAck<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], PublishAck<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                opt(reason_code),
-                cond(protocol_version >= ProtocolVersion::V5, properties),
+fn publish<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+    flags: PublishFlags,
+) -> IResult<&'a [u8], Publish<'a>, E> {
+    let dup = flags.contains(PublishFlags::DUP);
+    let qos = flags.qos();
+    let retain = flags.contains(PublishFlags::RETAIN);
+    let (input, (topic_name, packet_id, properties, payload)) = tuple((
+        topic_name,
+        cond(qos >= QoS::AtLeastOnce, packet_id),
+        cond(protocol_version >= ProtocolVersion::V5, properties),
+        rest,
+    ))(input)?;
+
+    Ok((
+        input,
+        Publish {
+            dup,
+            qos,
+            retain,
+            topic_name,
+            packet_id,
+            properties,
+            payload,
+        },
+    ))
+}
+
+fn publish_ack<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], PublishAck<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            opt(reason_code),
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+        )),
+        |(packet_id, reason_code, properties)| PublishAck {
+            packet_id,
+            reason_code,
+            properties,
+        },
+    )(input)
+}
+
+fn publish_received<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], PublishReceived<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            opt(reason_code),
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+        )),
+        |(packet_id, reason_code, properties)| PublishReceived {
+            packet_id,
+            reason_code,
+            properties,
+        },
+    )(input)
+}
+
+fn publish_release<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], PublishRelease<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            opt(reason_code),
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+        )),
+        |(packet_id, reason_code, properties)| PublishRelease {
+            packet_id,
+            reason_code,
+            properties,
+        },
+    )(input)
+}
+
+fn publish_complete<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], PublishComplete<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            opt(reason_code),
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+        )),
+        |(packet_id, reason_code, properties)| PublishComplete {
+            packet_id,
+            reason_code,
+            properties,
+        },
+    )(input)
+}
+
+fn subscribe<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], Subscribe<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+            many1(subscription),
+        )),
+        |(packet_id, properties, subscriptions)| Subscribe {
+            packet_id,
+            properties,
+            subscriptions,
+        },
+    )(input)
+}
+
+const QOS_MASK: u8 = 0x3;
+
+fn subscribe_ack<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], SubscribeAck<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+            many1(context(
+                "return code",
+                map(be_u8, |b| {
+                    if (b & SubscribeReturnCode::FAILURE) == 0 {
+                        SubscribeReturnCode::Success(unsafe { QoS::from_unchecked(b & QOS_MASK) })
+                    } else {
+                        SubscribeReturnCode::Failure
+                    }
+                }),
             )),
-            |(packet_id, reason_code, properties)| PublishAck {
-                packet_id,
-                reason_code,
-                properties,
-            },
-        )(input)
-    }
+        )),
+        |(packet_id, properties, status)| SubscribeAck {
+            packet_id,
+            properties,
+            status,
+        },
+    )(input)
 }
 
-impl PublishReceived<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], PublishReceived<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                opt(reason_code),
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-            )),
-            |(packet_id, reason_code, properties)| PublishReceived {
-                packet_id,
-                reason_code,
-                properties,
-            },
-        )(input)
-    }
+fn unsubscribe<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], Unsubscribe<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+            many1(topic_filter),
+        )),
+        |(packet_id, properties, topic_filters)| Unsubscribe {
+            packet_id,
+            properties,
+            topic_filters,
+        },
+    )(input)
 }
 
-impl PublishRelease<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], PublishRelease<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                opt(reason_code),
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-            )),
-            |(packet_id, reason_code, properties)| PublishRelease {
-                packet_id,
-                reason_code,
-                properties,
-            },
-        )(input)
-    }
+fn unsubscribe_ack<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], UnsubscribeAck<'a>, E> {
+    map(
+        tuple((
+            packet_id,
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+        )),
+        |(packet_id, properties)| UnsubscribeAck {
+            packet_id,
+            properties,
+        },
+    )(input)
 }
 
-impl PublishComplete<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], PublishComplete<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                opt(reason_code),
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-            )),
-            |(packet_id, reason_code, properties)| PublishComplete {
-                packet_id,
-                reason_code,
-                properties,
-            },
-        )(input)
-    }
+fn disconnect<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+    protocol_version: ProtocolVersion,
+) -> IResult<&'a [u8], Disconnect<'a>, E> {
+    map(
+        tuple((
+            opt(reason_code),
+            cond(protocol_version >= ProtocolVersion::V5, properties),
+        )),
+        |(reason_code, properties)| Disconnect {
+            reason_code,
+            properties,
+        },
+    )(input)
 }
 
-impl Subscribe<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], Subscribe<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-                many1(subscription),
-            )),
-            |(packet_id, properties, subscriptions)| Subscribe {
-                packet_id,
-                properties,
-                subscriptions,
-            },
-        )(input)
-    }
-}
-
-impl SubscribeAck<'_> {
-    const QOS_MASK: u8 = 0x3;
-
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], SubscribeAck<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-                many1(context(
-                    "return code",
-                    map(be_u8, |b| {
-                        if (b & SubscribeReturnCode::FAILURE) == 0 {
-                            SubscribeReturnCode::Success(unsafe {
-                                QoS::from_unchecked(b & Self::QOS_MASK)
-                            })
-                        } else {
-                            SubscribeReturnCode::Failure
-                        }
-                    }),
-                )),
-            )),
-            |(packet_id, properties, status)| SubscribeAck {
-                packet_id,
-                properties,
-                status,
-            },
-        )(input)
-    }
-}
-
-impl Unsubscribe<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], Unsubscribe<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-                many1(topic_filter),
-            )),
-            |(packet_id, properties, topic_filters)| Unsubscribe {
-                packet_id,
-                properties,
-                topic_filters,
-            },
-        )(input)
-    }
-}
-
-impl UnsubscribeAck<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], UnsubscribeAck<'a>, E> {
-        map(
-            tuple((
-                packet_id,
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-            )),
-            |(packet_id, properties)| UnsubscribeAck {
-                packet_id,
-                properties,
-            },
-        )(input)
-    }
-}
-
-impl Disconnect<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(
-        input: &'a [u8],
-        protocol_version: ProtocolVersion,
-    ) -> IResult<&'a [u8], Disconnect<'a>, E> {
-        map(
-            tuple((
-                opt(reason_code),
-                cond(protocol_version >= ProtocolVersion::V5, properties),
-            )),
-            |(reason_code, properties)| Disconnect {
-                reason_code,
-                properties,
-            },
-        )(input)
-    }
-}
-
-impl Auth<'_> {
-    fn parse<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Auth<'a>, E> {
-        map(
-            tuple((opt(reason_code), opt(properties))),
-            |(reason_code, properties)| Auth {
-                reason_code,
-                properties,
-            },
-        )(input)
-    }
+fn auth<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Auth<'a>, E> {
+    map(
+        tuple((opt(reason_code), opt(properties))),
+        |(reason_code, properties)| Auth {
+            reason_code,
+            properties,
+        },
+    )(input)
 }
 
 #[cfg(test)]
@@ -751,9 +713,7 @@ mod tests {
     #[test]
     fn test_connect() {
         assert_eq!(
-            Connect::parse::<()>(
-                b"\x00\x04MQTT\x04\xC0\x00\x3C\x00\x0512345\x00\x04user\x00\x04pass",
-            ),
+            connect::<()>(b"\x00\x04MQTT\x04\xC0\x00\x3C\x00\x0512345\x00\x04user\x00\x04pass",),
             Ok((
                 &b""[..],
                 Connect {
@@ -770,9 +730,7 @@ mod tests {
         );
 
         assert_eq!(
-            Connect::parse::<()>(
-                b"\x00\x04MQTT\x04\x14\x00\x3C\x00\x0512345\x00\x05topic\x00\x07message",
-            ),
+            connect::<()>(b"\x00\x04MQTT\x04\x14\x00\x3C\x00\x0512345\x00\x05topic\x00\x07message",),
             Ok((
                 &b""[..],
                 Connect {
@@ -795,7 +753,7 @@ mod tests {
         );
 
         assert_eq!(
-            Connect::parse::<VerboseError<&[u8]>>(
+            connect::<VerboseError<&[u8]>>(
                 b"\x00\x04MQTT\x05\x14\x00\x3C\x0A\x11\xff\xff\xff\xff\x27\x00\x00\x10\x00\x00\x0512345\x00\x00\x05topic\x00\x07message"
             ),
             Ok((
@@ -823,7 +781,7 @@ mod tests {
         );
 
         assert_eq!(
-            Connect::parse(b"\x00\x02MQ"),
+            connect(b"\x00\x02MQ"),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&b"\x00\x02MQ"[..], Nom(Tag)),
@@ -833,7 +791,7 @@ mod tests {
             "incomplete protocol name"
         );
         assert_eq!(
-            Connect::parse(b"\x00\x04MQAA"),
+            connect(b"\x00\x04MQAA"),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&b"\x00\x04MQAA"[..], Nom(Tag)),
@@ -843,7 +801,7 @@ mod tests {
             "invalid protocol name"
         );
         assert_eq!(
-            Connect::parse(b"\x00\x04MQTT\x03"),
+            connect(b"\x00\x04MQTT\x03"),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&b"\x03"[..], Nom(MapRes)),
@@ -853,7 +811,7 @@ mod tests {
             "invalid protocol version"
         );
         assert_eq!(
-            Connect::parse(b"\x00\x04MQTT\x04\xff"),
+            connect(b"\x00\x04MQTT\x04\xff"),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&b"\xff"[..], Nom(MapOpt)),
@@ -867,7 +825,7 @@ mod tests {
     #[test]
     fn test_connect_ack() {
         assert_eq!(
-            ConnectAck::parse::<()>(b"\x01\x04", ProtocolVersion::V311),
+            connect_ack::<()>(b"\x01\x04", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 ConnectAck {
@@ -879,7 +837,7 @@ mod tests {
         );
 
         assert_eq!(
-            ConnectAck::parse(b"\x03\x04", ProtocolVersion::V311),
+            connect_ack(b"\x03\x04", ProtocolVersion::V311),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&b"\x03\x04"[..], Nom(MapOpt)),
@@ -893,7 +851,7 @@ mod tests {
     #[test]
     fn test_disconnect() {
         assert_eq!(
-            Packet::parse::<()>(b"\xe0\x00", ProtocolVersion::V311),
+            parse::<()>(b"\xe0\x00", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::Disconnect(Disconnect {
@@ -907,7 +865,7 @@ mod tests {
     #[test]
     fn test_publish() {
         assert_eq!(
-            Publish::parse::<()>(
+            publish::<()>(
                 b"\x00\x05topic\x12\x34hello",
                 ProtocolVersion::V311,
                 QoS::AtLeastOnce.into()
@@ -927,7 +885,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse::<()>(b"\x3d\x0D\x00\x05topic\x43\x21data", ProtocolVersion::V311),
+            parse::<()>(b"\x3d\x0D\x00\x05topic\x43\x21data", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::Publish(Publish {
@@ -942,7 +900,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            Packet::parse::<()>(b"\x30\x0b\x00\x05topicdata", ProtocolVersion::V311),
+            parse::<()>(b"\x30\x0b\x00\x05topicdata", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::Publish(Publish {
@@ -958,7 +916,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse::<()>(b"\x40\x02\x43\x21", ProtocolVersion::V311),
+            parse::<()>(b"\x40\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishAck(PublishAck {
@@ -969,7 +927,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            Packet::parse::<()>(b"\x50\x02\x43\x21", ProtocolVersion::V311),
+            parse::<()>(b"\x50\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishReceived(PublishReceived {
@@ -980,7 +938,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            Packet::parse::<()>(b"\x62\x02\x43\x21", ProtocolVersion::V311),
+            parse::<()>(b"\x62\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishRelease(PublishRelease {
@@ -991,7 +949,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            Packet::parse::<()>(b"\x70\x02\x43\x21", ProtocolVersion::V311),
+            parse::<()>(b"\x70\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishComplete(PublishComplete {
@@ -1006,7 +964,7 @@ mod tests {
     #[test]
     fn test_subscribe() {
         assert_eq!(
-            Subscribe::parse::<()>(
+            subscribe::<()>(
                 b"\x12\x34\x00\x04test\x01\x00\x06filter\x02",
                 ProtocolVersion::V311
             ),
@@ -1031,7 +989,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            Packet::parse::<()>(
+            parse::<()>(
                 b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02",
                 ProtocolVersion::V311
             ),
@@ -1057,7 +1015,7 @@ mod tests {
         );
 
         assert_eq!(
-            SubscribeAck::parse::<()>(b"\x12\x34\x01\x80\x02", ProtocolVersion::V311),
+            subscribe_ack::<()>(b"\x12\x34\x01\x80\x02", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 SubscribeAck {
@@ -1073,7 +1031,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse::<()>(b"\x90\x05\x12\x34\x01\x80\x02", ProtocolVersion::V311),
+            parse::<()>(b"\x90\x05\x12\x34\x01\x80\x02", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::SubscribeAck(SubscribeAck {
@@ -1089,7 +1047,7 @@ mod tests {
         );
 
         assert_eq!(
-            Unsubscribe::parse::<()>(b"\x12\x34\x00\x04test\x00\x06filter", ProtocolVersion::V311),
+            unsubscribe::<()>(b"\x12\x34\x00\x04test\x00\x06filter", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Unsubscribe {
@@ -1100,7 +1058,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            Packet::parse::<()>(
+            parse::<()>(
                 b"\xa2\x10\x12\x34\x00\x04test\x00\x06filter",
                 ProtocolVersion::V311
             ),
@@ -1115,7 +1073,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse::<()>(b"\xb0\x02\x43\x21", ProtocolVersion::V311),
+            parse::<()>(b"\xb0\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::UnsubscribeAck(UnsubscribeAck {
@@ -1126,7 +1084,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse(b"\x82\x02\x42\x42", ProtocolVersion::V311),
+            parse(b"\x82\x02\x42\x42", ProtocolVersion::V311),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&[][..], Nom(Eof)),
@@ -1141,7 +1099,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse(b"\x82\x04\x42\x42\x00\x00", ProtocolVersion::V311),
+            parse(b"\x82\x04\x42\x42\x00\x00", ProtocolVersion::V311),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&[][..], Nom(Eof)),
@@ -1155,7 +1113,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse(b"\x82\x03\x42\x42\x00", ProtocolVersion::V311),
+            parse(b"\x82\x03\x42\x42\x00", ProtocolVersion::V311),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&[0][..], Nom(Eof)),
@@ -1170,7 +1128,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse(b"\xa2\x02\x42\x42", ProtocolVersion::V311),
+            parse(b"\xa2\x02\x42\x42", ProtocolVersion::V311),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&[][..], Nom(Eof)),
@@ -1184,7 +1142,7 @@ mod tests {
         );
 
         assert_eq!(
-            Packet::parse(b"\xa2\x03\x42\x42\x00", ProtocolVersion::V311),
+            parse(b"\xa2\x03\x42\x42\x00", ProtocolVersion::V311),
             Err(nom::Err::Error(VerboseError {
                 errors: vec![
                     (&[0][..], Nom(Eof)),
@@ -1201,11 +1159,11 @@ mod tests {
     #[test]
     fn test_ping_pong() {
         assert_eq!(
-            Packet::parse::<()>(b"\xc0\x00", ProtocolVersion::V311),
+            parse::<()>(b"\xc0\x00", ProtocolVersion::V311),
             Ok((&b""[..], Packet::Ping))
         );
         assert_eq!(
-            Packet::parse::<()>(b"\xd0\x00", ProtocolVersion::V311),
+            parse::<()>(b"\xd0\x00", ProtocolVersion::V311),
             Ok((&b""[..], Packet::Pong))
         );
     }

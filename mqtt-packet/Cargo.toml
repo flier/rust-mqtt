@@ -17,6 +17,8 @@ num_enum = "0.4"
 derive_more = "0.99"
 nom = "5"
 
+mqtt-core = { version = "0.2", path = "../mqtt-core" }
+
 [dev-dependencies]
 criterion = "0.3"
 

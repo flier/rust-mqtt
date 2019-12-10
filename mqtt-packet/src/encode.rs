@@ -1,8 +1,10 @@
 use core::mem;
 
 use bytes::BufMut;
+use derive_more::Deref;
 
-use crate::{packet::*, Property};
+use crate::mqtt::{ConnectReturnCode, PacketId, Property, ReasonCode, SubscribeReturnCode};
+use crate::packet::*;
 
 const PROPERTY_ID_SIZE: usize = mem::size_of::<u8>();
 const LENGTH_FIELD_SIZE: usize = mem::size_of::<u16>();
@@ -42,7 +44,7 @@ impl Packet<'_> {
 
     fn packet_flags(&self) -> u8 {
         match self {
-            Packet::Publish(ref publish) => publish.flags().bits(),
+            Packet::Publish(ref publish) => Publish(publish).flags().bits(),
             Packet::PublishRelease(_) | Packet::Subscribe(_) | Packet::Unsubscribe(_) => 0x02,
             _ => 0,
         }
@@ -50,20 +52,24 @@ impl Packet<'_> {
 
     fn remaining_length(&self) -> usize {
         match self {
-            Packet::Connect(ref connect) => connect.size(),
-            Packet::ConnectAck(ref connect_ack) => connect_ack.size(),
-            Packet::Publish(ref publish) => publish.size(),
-            Packet::PublishAck(ref publish_ack) => publish_ack.size(),
-            Packet::PublishReceived(ref publish_received) => publish_received.size(),
-            Packet::PublishRelease(ref publish_release) => publish_release.size(),
-            Packet::PublishComplete(ref publish_complete) => publish_complete.size(),
-            Packet::Subscribe(ref subscribe) => subscribe.size(),
-            Packet::SubscribeAck(ref subscribe_ack) => subscribe_ack.size(),
-            Packet::Unsubscribe(ref unsubscribe) => unsubscribe.size(),
-            Packet::UnsubscribeAck(ref unsubscribe_ack) => unsubscribe_ack.size(),
+            Packet::Connect(ref connect) => Connect(connect).size(),
+            Packet::ConnectAck(ref connect_ack) => ConnectAck(connect_ack).size(),
+            Packet::Publish(ref publish) => Publish(publish).size(),
+            Packet::PublishAck(ref publish_ack) => PublishAck(publish_ack).size(),
+            Packet::PublishReceived(ref publish_received) => {
+                PublishReceived(publish_received).size()
+            }
+            Packet::PublishRelease(ref publish_release) => PublishRelease(publish_release).size(),
+            Packet::PublishComplete(ref publish_complete) => {
+                PublishComplete(publish_complete).size()
+            }
+            Packet::Subscribe(ref subscribe) => Subscribe(subscribe).size(),
+            Packet::SubscribeAck(ref subscribe_ack) => SubscribeAck(subscribe_ack).size(),
+            Packet::Unsubscribe(ref unsubscribe) => Unsubscribe(unsubscribe).size(),
+            Packet::UnsubscribeAck(ref unsubscribe_ack) => UnsubscribeAck(unsubscribe_ack).size(),
             Packet::Ping | Packet::Pong => 0,
-            Packet::Disconnect(ref disconnect) => disconnect.size(),
-            Packet::Auth(ref auth) => auth.size(),
+            Packet::Disconnect(ref disconnect) => Disconnect(disconnect).size(),
+            Packet::Auth(ref auth) => Auth(auth).size(),
         }
     }
 }
@@ -113,20 +119,28 @@ impl WriteTo for Packet<'_> {
         self.fixed_header().write_to(buf);
 
         match self {
-            Packet::Connect(ref connect) => connect.write_to(buf),
-            Packet::ConnectAck(ref connect_ack) => connect_ack.write_to(buf),
-            Packet::Publish(ref publish) => publish.write_to(buf),
-            Packet::PublishAck(ref publish_ack) => publish_ack.write_to(buf),
-            Packet::PublishReceived(ref publish_received) => publish_received.write_to(buf),
-            Packet::PublishRelease(ref publish_release) => publish_release.write_to(buf),
-            Packet::PublishComplete(ref publish_complete) => publish_complete.write_to(buf),
-            Packet::Subscribe(ref subscribe) => subscribe.write_to(buf),
-            Packet::SubscribeAck(ref subscribe_ack) => subscribe_ack.write_to(buf),
-            Packet::Unsubscribe(ref unsubscribe) => unsubscribe.write_to(buf),
-            Packet::UnsubscribeAck(ref unsubscribe_ack) => unsubscribe_ack.write_to(buf),
+            Packet::Connect(ref connect) => Connect(connect).write_to(buf),
+            Packet::ConnectAck(ref connect_ack) => ConnectAck(connect_ack).write_to(buf),
+            Packet::Publish(ref publish) => Publish(publish).write_to(buf),
+            Packet::PublishAck(ref publish_ack) => PublishAck(publish_ack).write_to(buf),
+            Packet::PublishReceived(ref publish_received) => {
+                PublishReceived(publish_received).write_to(buf)
+            }
+            Packet::PublishRelease(ref publish_release) => {
+                PublishRelease(publish_release).write_to(buf)
+            }
+            Packet::PublishComplete(ref publish_complete) => {
+                PublishComplete(publish_complete).write_to(buf)
+            }
+            Packet::Subscribe(ref subscribe) => Subscribe(subscribe).write_to(buf),
+            Packet::SubscribeAck(ref subscribe_ack) => SubscribeAck(subscribe_ack).write_to(buf),
+            Packet::Unsubscribe(ref unsubscribe) => Unsubscribe(unsubscribe).write_to(buf),
+            Packet::UnsubscribeAck(ref unsubscribe_ack) => {
+                UnsubscribeAck(unsubscribe_ack).write_to(buf)
+            }
             Packet::Ping | Packet::Pong => {}
-            Packet::Disconnect(ref disconnect) => disconnect.write_to(buf),
-            Packet::Auth(ref auth) => auth.write_to(buf),
+            Packet::Disconnect(ref disconnect) => Disconnect(disconnect).write_to(buf),
+            Packet::Auth(ref auth) => Auth(auth).write_to(buf),
         }
     }
 }
@@ -260,6 +274,9 @@ impl WriteTo for Property<'_> {
     }
 }
 
+#[derive(Deref)]
+struct Connect<'a>(&'a mqtt::Connect<'a>);
+
 impl WriteTo for Connect<'_> {
     fn size(&self) -> usize {
         PROTOCOL_NAME.len()
@@ -322,6 +339,9 @@ impl WriteTo for Connect<'_> {
     }
 }
 
+#[derive(Deref)]
+struct ConnectAck<'a>(&'a mqtt::ConnectAck<'a>);
+
 impl WriteTo for ConnectAck<'_> {
     fn size(&self) -> usize {
         mem::size_of::<ConnectAckFlags>()
@@ -341,6 +361,9 @@ impl WriteTo for ConnectAck<'_> {
         }
     }
 }
+
+#[derive(Deref)]
+struct Publish<'a>(&'a mqtt::Publish<'a>);
 
 impl Publish<'_> {
     fn flags(&self) -> PublishFlags {
@@ -376,6 +399,9 @@ impl WriteTo for Publish<'_> {
     }
 }
 
+#[derive(Deref)]
+struct PublishAck<'a>(&'a mqtt::PublishAck<'a>);
+
 impl WriteTo for PublishAck<'_> {
     fn size(&self) -> usize {
         mem::size_of::<PacketId>()
@@ -393,6 +419,9 @@ impl WriteTo for PublishAck<'_> {
         }
     }
 }
+
+#[derive(Deref)]
+struct PublishReceived<'a>(&'a mqtt::PublishReceived<'a>);
 
 impl WriteTo for PublishReceived<'_> {
     fn size(&self) -> usize {
@@ -412,6 +441,9 @@ impl WriteTo for PublishReceived<'_> {
     }
 }
 
+#[derive(Deref)]
+struct PublishRelease<'a>(&'a mqtt::PublishRelease<'a>);
+
 impl WriteTo for PublishRelease<'_> {
     fn size(&self) -> usize {
         mem::size_of::<PacketId>()
@@ -430,6 +462,9 @@ impl WriteTo for PublishRelease<'_> {
     }
 }
 
+#[derive(Deref)]
+struct PublishComplete<'a>(&'a mqtt::PublishComplete<'a>);
+
 impl WriteTo for PublishComplete<'_> {
     fn size(&self) -> usize {
         mem::size_of::<PacketId>()
@@ -447,6 +482,9 @@ impl WriteTo for PublishComplete<'_> {
         }
     }
 }
+
+#[derive(Deref)]
+struct Subscribe<'a>(&'a mqtt::Subscribe<'a>);
 
 impl WriteTo for Subscribe<'_> {
     fn size(&self) -> usize {
@@ -470,10 +508,13 @@ impl WriteTo for Subscribe<'_> {
         }
         for subscription in &self.subscriptions {
             buf.put_utf8_str(subscription.topic_filter);
-            buf.put_u8(subscription.options().bits())
+            buf.put_u8(SubscriptionOptions::from(subscription).bits())
         }
     }
 }
+
+#[derive(Deref)]
+struct SubscribeAck<'a>(&'a mqtt::SubscribeAck<'a>);
 
 impl WriteTo for SubscribeAck<'_> {
     fn size(&self) -> usize {
@@ -492,6 +533,9 @@ impl WriteTo for SubscribeAck<'_> {
         }
     }
 }
+
+#[derive(Deref)]
+struct Unsubscribe<'a>(&'a mqtt::Unsubscribe<'a>);
 
 impl WriteTo for Unsubscribe<'_> {
     fn size(&self) -> usize {
@@ -515,6 +559,9 @@ impl WriteTo for Unsubscribe<'_> {
     }
 }
 
+#[derive(Deref)]
+struct UnsubscribeAck<'a>(&'a mqtt::UnsubscribeAck<'a>);
+
 impl WriteTo for UnsubscribeAck<'_> {
     fn size(&self) -> usize {
         mem::size_of::<PacketId>() + self.properties.as_ref().map_or(0, |p| p.size())
@@ -527,6 +574,9 @@ impl WriteTo for UnsubscribeAck<'_> {
         }
     }
 }
+
+#[derive(Deref)]
+struct Disconnect<'a>(&'a mqtt::Disconnect<'a>);
 
 impl WriteTo for Disconnect<'_> {
     fn size(&self) -> usize {
@@ -543,6 +593,9 @@ impl WriteTo for Disconnect<'_> {
         }
     }
 }
+
+#[derive(Deref)]
+struct Auth<'a>(&'a mqtt::Auth<'a>);
 
 impl WriteTo for Auth<'_> {
     fn size(&self) -> usize {
@@ -562,8 +615,9 @@ impl WriteTo for Auth<'_> {
 
 #[cfg(test)]
 mod tests {
+    use crate::mqtt::*;
+
     use super::*;
-    use crate::*;
 
     #[test]
     fn test_encoded_data() {
@@ -596,7 +650,7 @@ mod tests {
     #[test]
     fn test_connect() {
         assert_packet!(
-            Packet::Connect(Connect {
+            Packet::Connect(mqtt::Connect {
                 protocol_version: ProtocolVersion::V311,
                 clean_session: false,
                 keep_alive: 60,
@@ -610,7 +664,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::Connect(Connect {
+            Packet::Connect(mqtt::Connect {
                 protocol_version: ProtocolVersion::V311,
                 clean_session: false,
                 keep_alive: 60,
@@ -630,7 +684,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::Connect(Connect {
+            Packet::Connect(mqtt::Connect {
                 protocol_version: ProtocolVersion::V5,
                 clean_session: false,
                 keep_alive: 60,
@@ -653,7 +707,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::Disconnect(Disconnect {
+            Packet::Disconnect(mqtt::Disconnect {
                 reason_code: None,
                 properties: None
             }),
@@ -664,7 +718,7 @@ mod tests {
     #[test]
     fn test_publish() {
         assert_packet!(
-            Packet::Publish(Publish {
+            Packet::Publish(mqtt::Publish {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
@@ -677,7 +731,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::Publish(Publish {
+            Packet::Publish(mqtt::Publish {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
@@ -693,7 +747,7 @@ mod tests {
     #[test]
     fn test_subscribe() {
         assert_packet!(
-            Packet::Subscribe(Subscribe {
+            Packet::Subscribe(mqtt::Subscribe {
                 packet_id: 0x1234,
                 properties: None,
                 subscriptions: vec![
@@ -713,7 +767,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::SubscribeAck(SubscribeAck {
+            Packet::SubscribeAck(mqtt::SubscribeAck {
                 packet_id: 0x1234,
                 properties: None,
                 status: vec![
@@ -726,7 +780,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::Unsubscribe(Unsubscribe {
+            Packet::Unsubscribe(mqtt::Unsubscribe {
                 packet_id: 0x1234,
                 properties: None,
                 topic_filters: vec!["test", "filter"],
@@ -735,7 +789,7 @@ mod tests {
         );
 
         assert_packet!(
-            Packet::UnsubscribeAck(UnsubscribeAck {
+            Packet::UnsubscribeAck(mqtt::UnsubscribeAck {
                 packet_id: 0x4321,
                 properties: None,
             }),

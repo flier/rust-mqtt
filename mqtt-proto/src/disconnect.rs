@@ -2,14 +2,15 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
 pub use crate::{
-    packet::{Expiry, LastWill, Packet, Property, ProtocolVersion, QoS, ReasonCode},
+    mqtt::{Expiry, LastWill, Property, ProtocolVersion, QoS, ReasonCode},
+    packet::Packet,
     MQTT_V5,
 };
 
 /// Disconnect from the broker.
 pub fn disconnect<'a, P>() -> Disconnect<'a, P> {
     Disconnect(
-        packet::Disconnect {
+        mqtt::Disconnect {
             reason_code: None,
             properties: None,
         },
@@ -20,10 +21,10 @@ pub fn disconnect<'a, P>() -> Disconnect<'a, P> {
 /// Disconnect notification
 #[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
-pub struct Disconnect<'a, P>(packet::Disconnect<'a>, PhantomData<P>);
+pub struct Disconnect<'a, P>(mqtt::Disconnect<'a>, PhantomData<P>);
 
 impl<'a, P> Deref for Disconnect<'a, P> {
-    type Target = packet::Disconnect<'a>;
+    type Target = mqtt::Disconnect<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -37,7 +38,7 @@ impl<'a, P> DerefMut for Disconnect<'a, P> {
 }
 
 impl<'a, P> From<Disconnect<'a, P>> for Packet<'a> {
-    fn from(disconnect: Disconnect<'a, P>) -> packet::Packet<'a> {
+    fn from(disconnect: Disconnect<'a, P>) -> Packet<'a> {
         Packet::Disconnect(disconnect.0)
     }
 }

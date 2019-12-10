@@ -18,6 +18,7 @@ nom = "5"
 slab = "0.4"
 rotor = "0.6"
 
+mqtt-core = { version = "0.2", path = "../mqtt-core" }
 mqtt-packet = { version = "0.2", path = "../mqtt-packet" }
 mqtt-proto = { version = "0.2", path = "../mqtt-proto" }
 

@@ -7,7 +7,8 @@ extern crate nom;
 extern crate rotor;
 extern crate slab;
 
-pub extern crate mqtt_core as core;
+pub extern crate mqtt_core as mqtt;
+pub extern crate mqtt_packet as packet;
 pub extern crate mqtt_proto as proto;
 
 pub mod client;
