@@ -3,17 +3,14 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use hexplay::HexViewBuilder;
-
 use crate::{
+    framed::Framed,
     io::{ReadExt, WriteExt},
     mqtt::{ConnectReturnCode, Property, ReasonCode},
     packet::Packet,
     proto::{Protocol, MQTT_V5},
     Client,
 };
-
-const MAX_PACKET_SIZE: usize = 4096;
 
 pub fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Client<TcpStream, MQTT_V5>> {
     Connector::<A>::new(addr).connect()
@@ -63,33 +60,26 @@ where
         let connect = self.connect;
         stream.send(Packet::Connect(connect.clone()))?;
 
-        let mut buf = [0; MAX_PACKET_SIZE];
-        let (remaining, packet) = stream.receive(&mut buf, P::VERSION)?;
-        if !remaining.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "unexpected data:\n{}",
-                    HexViewBuilder::new(remaining).finish()
-                ),
-            ));
-        }
+        let mut framed = Framed::new(stream, P::VERSION);
+
+        let packet = framed.receive()?;
 
         match packet {
             Packet::ConnectAck(connect_ack) => match connect_ack.return_code {
-                ConnectReturnCode::ConnectionAccepted => Ok(Client::new(
-                    stream,
-                    if connect.keep_alive > 0 {
+                ConnectReturnCode::ConnectionAccepted => {
+                    let keep_alive = if connect.keep_alive > 0 {
                         Some(Duration::from_secs(connect.keep_alive as u64))
                     } else {
                         None
-                    },
-                    connect_ack.session_present,
-                    connect_ack
+                    };
+                    let session_present = connect_ack.session_present;
+                    let properties = connect_ack
                         .properties
                         .map(|props| props.into_iter().collect())
-                        .unwrap_or_default(),
-                )),
+                        .unwrap_or_default();
+
+                    Ok(Client::new(framed, keep_alive, session_present, properties))
+                }
                 ConnectReturnCode::ServiceUnavailable => {
                     if let Some(addr) = connect_ack.properties.as_ref().and_then(|props| {
                         props.iter().find_map(|prop| {

@@ -12,8 +12,11 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
-hostname = "0.2"
 hexplay = "0.2"
+hostname = "0.2"
+bytes = "0.5"
+time = "0.1"
+timer = "0.2"
 
 mqtt-core = { version = "0.2", path = "../mqtt-core" }
 mqtt-proto = { version = "0.2", path = "../mqtt-proto" }

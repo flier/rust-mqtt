@@ -6,7 +6,7 @@ use core::u32;
 use nom::{
     bytes::complete::{tag, take, take_while_m_n},
     combinator::{all_consuming, cond, map, map_opt, map_res, opt, recognize, rest, verify},
-    error::{context, ErrorKind::*, ParseError},
+    error::{context, ErrorKind::*, ParseError, VerboseError},
     multi::{length_data, many0, many1},
     number::complete::{be_u16, be_u32, be_u8},
     sequence::{pair, tuple},
@@ -250,10 +250,10 @@ fn property<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], P
 }
 
 /// Parses the bytes slice into Packet type.
-pub fn parse<'a, E: ParseError<&'a [u8]>>(
+pub fn parse<'a>(
     input: &'a [u8],
     protocol_version: ProtocolVersion,
-) -> IResult<&'a [u8], Packet<'a>, E> {
+) -> IResult<&'a [u8], Packet<'a>, VerboseError<&'a [u8]>> {
     let (input, fixed_header) = FixedHeader::parse(input)?;
     let (input, remaining) = take(fixed_header.remaining_length)(input)?;
 
@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn test_disconnect() {
         assert_eq!(
-            parse::<()>(b"\xe0\x00", ProtocolVersion::V311),
+            parse(b"\xe0\x00", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::Disconnect(Disconnect {
@@ -888,7 +888,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse::<()>(b"\x3d\x0D\x00\x05topic\x43\x21data", ProtocolVersion::V311),
+            parse(b"\x3d\x0D\x00\x05topic\x43\x21data", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::Publish(Publish {
@@ -903,7 +903,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse::<()>(b"\x30\x0b\x00\x05topicdata", ProtocolVersion::V311),
+            parse(b"\x30\x0b\x00\x05topicdata", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::Publish(Publish {
@@ -919,7 +919,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse::<()>(b"\x40\x02\x43\x21", ProtocolVersion::V311),
+            parse(b"\x40\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishAck(PublishAck {
@@ -930,7 +930,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse::<()>(b"\x50\x02\x43\x21", ProtocolVersion::V311),
+            parse(b"\x50\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishReceived(PublishReceived {
@@ -941,7 +941,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse::<()>(b"\x62\x02\x43\x21", ProtocolVersion::V311),
+            parse(b"\x62\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishRelease(PublishRelease {
@@ -952,7 +952,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse::<()>(b"\x70\x02\x43\x21", ProtocolVersion::V311),
+            parse(b"\x70\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::PublishComplete(PublishComplete {
@@ -992,7 +992,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse::<()>(
+            parse(
                 b"\x82\x12\x12\x34\x00\x04test\x01\x00\x06filter\x02",
                 ProtocolVersion::V311
             ),
@@ -1034,7 +1034,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse::<()>(b"\x90\x05\x12\x34\x01\x80\x02", ProtocolVersion::V311),
+            parse(b"\x90\x05\x12\x34\x01\x80\x02", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::SubscribeAck(SubscribeAck {
@@ -1061,7 +1061,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            parse::<()>(
+            parse(
                 b"\xa2\x10\x12\x34\x00\x04test\x00\x06filter",
                 ProtocolVersion::V311
             ),
@@ -1076,7 +1076,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse::<()>(b"\xb0\x02\x43\x21", ProtocolVersion::V311),
+            parse(b"\xb0\x02\x43\x21", ProtocolVersion::V311),
             Ok((
                 &b""[..],
                 Packet::UnsubscribeAck(UnsubscribeAck {
@@ -1162,11 +1162,11 @@ mod tests {
     #[test]
     fn test_ping_pong() {
         assert_eq!(
-            parse::<()>(b"\xc0\x00", ProtocolVersion::V311),
+            parse(b"\xc0\x00", ProtocolVersion::V311),
             Ok((&b""[..], Packet::Ping))
         );
         assert_eq!(
-            parse::<()>(b"\xd0\x00", ProtocolVersion::V311),
+            parse(b"\xd0\x00", ProtocolVersion::V311),
             Ok((&b""[..], Packet::Pong))
         );
     }
