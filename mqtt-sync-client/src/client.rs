@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::{
+    io::WriteExt,
     packet::Packet,
     proto::{Disconnect, ServerProperties},
-    sync::io::WriteExt,
 };
 
 pub struct Client<T, P> {

@@ -6,10 +6,11 @@ use std::time::Duration;
 use hexplay::HexViewBuilder;
 
 use crate::{
+    io::{ReadExt, WriteExt},
     mqtt::{ConnectReturnCode, Property, ReasonCode},
     packet::Packet,
     proto::{Protocol, MQTT_V5},
-    sync::{Client, ReadExt, WriteExt},
+    Client,
 };
 
 const MAX_PACKET_SIZE: usize = 4096;

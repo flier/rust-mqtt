@@ -1,5 +1,5 @@
 [package]
-name = "mqtt-client"
+name = "mqtt-sync-client"
 version = "0.2.0"
 authors = ["Flier Lu <flier.lu@gmail.com>"]
 description = "MQTT protocol v3 implementation"
@@ -9,10 +9,6 @@ repository = "https://github.com/flier/rust-mqtt.git"
 keywords = ["MQTT", "IoT", "messaging"]
 license = "MIT/Apache-2.0"
 edition = "2018"
-
-[features]
-default = ["async"]
-async = []
 
 [dependencies]
 log = "0.4"

@@ -7,10 +7,10 @@ use anyhow::{anyhow, Result};
 use structopt::StructOpt;
 use url::Url;
 
-use mqtt_client::{
+use mqtt_sync_client::{
     mqtt::{ProtocolVersion, QoS},
     proto::*,
-    sync::Connector,
+    Connector,
 };
 
 #[derive(StructOpt, Debug)]
