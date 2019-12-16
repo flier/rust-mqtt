@@ -84,7 +84,7 @@ pub enum Property<'a> {
     /// Assigned Client Identifier [CONNACK]
     AssignedClientId(&'a str),
     /// Server Keep Alive [CONNACK]
-    ServerKeepAlive(u16),
+    ServerKeepAlive(Duration),
     /// Authentication Method [CONNECT, CONNACK, AUTH]
     AuthMethod(&'a str),
     /// Authentication Data [CONNECT, CONNACK, AUTH]

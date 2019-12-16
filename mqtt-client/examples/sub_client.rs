@@ -1,22 +1,17 @@
 #[macro_use]
 extern crate log;
 
-use core::marker::PhantomData;
-
-use std::io;
 use std::process;
-use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use structopt::StructOpt;
 use url::Url;
 
-use mqtt_client::sync::Connector;
-use mqtt_core::{ProtocolVersion, QoS};
-use mqtt_packet::{self, Packet};
-use mqtt_proto::*;
-
-const MAX_PACKET_SIZE: usize = 4096;
+use mqtt_client::{
+    mqtt::{ProtocolVersion, QoS},
+    proto::*,
+    sync::Connector,
+};
 
 #[derive(StructOpt, Debug)]
 #[structopt(
@@ -136,11 +131,9 @@ fn parse_qos(s: &str) -> Result<QoS> {
 }
 
 impl Opt {
-    fn server(&self) -> io::Result<(&str, u16)> {
+    fn server(&self) -> Result<(&str, u16)> {
         if let Some(ref url) = self.url {
-            let host = url
-                .host_str()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "missing hostname"))?;
+            let host = url.host_str().ok_or_else(|| anyhow!("missing hostname"))?;
             let port = url
                 .port()
                 .or_else(|| match url.scheme() {
@@ -148,7 +141,7 @@ impl Opt {
                     "mqtts" => Some(8883),
                     _ => None,
                 })
-                .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "unexpected scheme"))?;
+                .ok_or_else(|| anyhow!("unexpected scheme"))?;
 
             Ok((host, port))
         } else {
@@ -181,10 +174,12 @@ fn run<P>(opt: Opt) -> Result<()>
 where
     P: Protocol,
 {
-    let client_id = opt.client_id();
-    let mut connector = Connector::<_, P>::new(opt.server()?);
+    let addr = opt.server()?;
+    let mut connector = Connector::<_, P>::new(addr);
 
     connector.keep_alive = opt.keep_alive;
+
+    let client_id = opt.client_id();
     connector.client_id = client_id.as_str();
 
     if let Some(ref username) = opt.username {

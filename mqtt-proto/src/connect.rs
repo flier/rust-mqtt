@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
 use crate::{
-    mqtt::{Expiry, PayloadFormat, Property, ProtocolVersion, QoS},
+    mqtt::{Expiry, PayloadFormat, Property, QoS},
     Protocol, MQTT_V5,
 };
 
@@ -34,7 +34,7 @@ impl<'a, P> Into<mqtt::Connect<'a>> for Connect<'a, P> {
 
 impl<'a, P: Protocol> Connect<'a, P> {
     /// Connect to an MQTT broker.
-    pub fn new(keep_alive: Duration, client_id: &str) -> Connect<P>
+    pub fn new(keep_alive: Option<Duration>, client_id: &str) -> Connect<P>
     where
         P: crate::Protocol,
     {
@@ -42,12 +42,8 @@ impl<'a, P: Protocol> Connect<'a, P> {
             mqtt::Connect {
                 protocol_version: P::VERSION,
                 clean_session: true,
-                keep_alive: keep_alive.as_secs() as u16,
-                properties: if P::VERSION >= ProtocolVersion::V5 {
-                    Some(Vec::new())
-                } else {
-                    None
-                },
+                keep_alive: keep_alive.map_or(0, |d| d.as_secs() as u16),
+                properties: P::default_properties(),
                 client_id,
                 last_will: None,
                 username: None,
@@ -83,11 +79,7 @@ impl<'a, P: Protocol> Connect<'a, P> {
             retain,
             topic_name,
             message,
-            properties: if P::VERSION >= ProtocolVersion::V5 {
-                Some(Vec::new())
-            } else {
-                None
-            },
+            properties: P::default_properties(),
         });
         self
     }

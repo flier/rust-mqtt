@@ -243,10 +243,11 @@ impl WriteTo for Property<'_> {
             Property::PayloadFormat(n) => buf.put_u8(n as u8),
             Property::MaximumQoS(n) => buf.put_u8(n as u8),
 
-            Property::ServerKeepAlive(n)
-            | Property::ReceiveMaximum(n)
+            Property::ReceiveMaximum(n)
             | Property::TopicAliasMaximum(n)
             | Property::TopicAlias(n) => buf.put_u16(n),
+
+            Property::ServerKeepAlive(d) => buf.put_u16(d.as_secs() as u16),
 
             Property::MessageExpiryInterval(d) | Property::WillDelayInterval(d) => {
                 buf.put_u32(d.as_secs() as u32)

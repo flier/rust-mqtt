@@ -212,7 +212,10 @@ fn property<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], P
         PropertyId::SubscriptionId => map(varint, |n| Property::SubscriptionId(n as u32))(input),
         PropertyId::SessionExpiryInterval => map(expiry, Property::SessionExpiryInterval)(input),
         PropertyId::AssignedClientId => map(utf8_str, Property::AssignedClientId)(input),
-        PropertyId::ServerKeepAlive => map(be_u16, Property::ServerKeepAlive)(input),
+        PropertyId::ServerKeepAlive => map(
+            map(be_u16, |n| Duration::from_secs(n as u64)),
+            Property::ServerKeepAlive,
+        )(input),
         PropertyId::AuthMethod => map(utf8_str, Property::AuthMethod)(input),
         PropertyId::AuthData => map(binary_data, Property::AuthData)(input),
         PropertyId::RequestProblemInformation => {

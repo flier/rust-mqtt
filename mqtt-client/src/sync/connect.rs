@@ -1,11 +1,12 @@
 use std::io;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
-use std::process;
-use std::sync::Once;
 use std::time::Duration;
 
+use hexplay::HexViewBuilder;
+
 use crate::{
+    mqtt::{ConnectReturnCode, Property, ReasonCode},
     packet::Packet,
     proto::{Protocol, MQTT_V5},
     sync::{Client, ReadExt, WriteExt},
@@ -13,17 +14,14 @@ use crate::{
 
 const MAX_PACKET_SIZE: usize = 4096;
 
-static mut DEFAULT_CLIENT_ID: String = String::new();
-static DEFAULT_CLIENT_ID_INIT: Once = Once::new();
-
 pub fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Client<TcpStream, MQTT_V5>> {
-    Connector::<A, MQTT_V5>::new(addr).connect()
+    Connector::<A>::new(addr).connect()
 }
 
 #[derive(Debug)]
-pub struct Connector<'a, A, P> {
-    pub addr: A,
+pub struct Connector<'a, A, P = MQTT_V5> {
     pub connect: proto::Connect<'a, P>,
+    pub addr: A,
 }
 
 impl<'a, A, P> Deref for Connector<'a, A, P> {
@@ -47,20 +45,7 @@ where
     const DEFAULT_KEEPALIVE: Duration = Duration::from_secs(60);
 
     pub fn new(addr: A) -> Self {
-        DEFAULT_CLIENT_ID_INIT.call_once(|| unsafe {
-            DEFAULT_CLIENT_ID = format!(
-                "rust-mqtt-client-{}@{}",
-                hostname::get()
-                    .ok()
-                    .and_then(|s| s.to_str().map(|s| s.to_string()))
-                    .unwrap_or("localhost".to_owned()),
-                process::id()
-            )
-        });
-
-        let connect = proto::Connect::new(Self::DEFAULT_KEEPALIVE, unsafe {
-            DEFAULT_CLIENT_ID.as_str()
-        });
+        let connect = proto::Connect::new(Some(Self::DEFAULT_KEEPALIVE), "");
 
         Connector { addr, connect }
     }
@@ -74,21 +59,88 @@ where
     pub fn connect(self) -> io::Result<Client<TcpStream, P>> {
         let mut stream = TcpStream::connect(self.addr)?;
 
-        stream.send(Packet::Connect(self.connect.into()))?;
+        let connect = self.connect;
+        stream.send(Packet::Connect(connect.clone()))?;
 
         let mut buf = [0; MAX_PACKET_SIZE];
         let (remaining, packet) = stream.receive(&mut buf, P::VERSION)?;
-        if let Packet::ConnectAck(connect_ack) = packet {
-            connect_ack
-                .return_code
-                .ok()
-                .map(|_| Client::new(stream, connect_ack.session_present, connect_ack.properties))
-                .map_err(|code| io::Error::new(io::ErrorKind::Other, code))
-        } else {
-            Err(io::Error::new(
+        if !remaining.is_empty() {
+            return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("unexpected response type: {:?}", packet.packet_type()),
-            ))
+                format!(
+                    "unexpected data:\n{}",
+                    HexViewBuilder::new(remaining).finish()
+                ),
+            ));
+        }
+
+        match packet {
+            Packet::ConnectAck(connect_ack) => match connect_ack.return_code {
+                ConnectReturnCode::ConnectionAccepted => Ok(Client::new(
+                    stream,
+                    if connect.keep_alive > 0 {
+                        Some(Duration::from_secs(connect.keep_alive as u64))
+                    } else {
+                        None
+                    },
+                    connect_ack.session_present,
+                    connect_ack
+                        .properties
+                        .map(|props| props.into_iter().collect())
+                        .unwrap_or_default(),
+                )),
+                ConnectReturnCode::ServiceUnavailable => {
+                    if let Some(addr) = connect_ack.properties.as_ref().and_then(|props| {
+                        props.iter().find_map(|prop| {
+                            if let Property::ServerReference(server) = prop {
+                                Some(server)
+                            } else {
+                                None
+                            }
+                        })
+                    }) {
+                        info!("redirect to {}", addr);
+
+                        Connector { addr, connect }.connect()
+                    } else {
+                        Err(io::Error::new(
+                            io::ErrorKind::Other,
+                            connect_ack.return_code,
+                        ))
+                    }
+                }
+                code => Err(io::Error::new(io::ErrorKind::Other, code)),
+            },
+            Packet::Disconnect(disconnect) => match disconnect.reason_code.unwrap_or_default() {
+                ReasonCode::UseAnotherServer | ReasonCode::ServerMoved => {
+                    if let Some(addr) = disconnect.properties.as_ref().and_then(|props| {
+                        props.iter().find_map(|prop| {
+                            if let Property::ServerReference(server) = prop {
+                                Some(server)
+                            } else {
+                                None
+                            }
+                        })
+                    }) {
+                        info!("redirect to {}", addr);
+
+                        Connector { addr, connect }.connect()
+                    } else {
+                        Err(io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("connect rejected: {:#?}", disconnect.reason_code),
+                        ))
+                    }
+                }
+                code => Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("connect rejected: {:#?}", code),
+                )),
+            },
+            _ => Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("unexpected response: {:#?}", packet),
+            )),
         }
     }
 }

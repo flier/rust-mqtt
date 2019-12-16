@@ -31,9 +31,8 @@ impl<'a, P> Into<mqtt::Disconnect<'a>> for Disconnect<'a, P> {
     }
 }
 
-impl<'a, P> Disconnect<'a, P> {
-    /// Disconnect from the broker.
-    pub fn new() -> Disconnect<'a, P> {
+impl<'a, P> Default for Disconnect<'a, P> {
+    fn default() -> Self {
         Disconnect(
             mqtt::Disconnect {
                 reason_code: None,

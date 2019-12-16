@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
 use crate::{
-    mqtt::{Property, ProtocolVersion, Subscription, SubscriptionId},
+    mqtt::{Property, Subscription, SubscriptionId},
     Protocol, MQTT_V5,
 };
 
@@ -16,11 +16,7 @@ where
     Subscribe(
         mqtt::Subscribe {
             packet_id,
-            properties: if P::VERSION >= ProtocolVersion::V5 {
-                Some(Vec::new())
-            } else {
-                None
-            },
+            properties: P::default_properties(),
             subscriptions: subscriptions.into_iter().map(|s| s.into()).collect(),
         },
         PhantomData,
