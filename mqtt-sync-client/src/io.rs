@@ -2,23 +2,24 @@ use std::error::Error as StdError;
 use std::io;
 use std::net::TcpStream;
 
+use anyhow::Result;
 use hexplay::HexViewBuilder;
 
 use crate::packet::{Packet, WriteTo};
 
 pub trait Receiver {
-    fn receive(&mut self) -> io::Result<Packet>;
+    fn receive(&mut self) -> Result<Packet>;
 }
 
 pub trait Sender {
-    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()>;
+    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> Result<()>;
 }
 
 impl<W> Sender for W
 where
     W: io::Write,
 {
-    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()> {
+    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> Result<()> {
         let packet = packet.into();
         let mut buf = Vec::with_capacity(packet.size());
         packet.write_to(&mut buf);

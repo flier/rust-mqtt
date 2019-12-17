@@ -1,7 +1,8 @@
-use std::io;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
+
+use anyhow::{anyhow, Context, Result};
 
 use crate::{
     framed::Framed,
@@ -12,7 +13,7 @@ use crate::{
     Client,
 };
 
-pub fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Client<TcpStream, MQTT_V5>> {
+pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<Client<TcpStream, MQTT_V5>> {
     Connector::<A>::new(addr).connect()
 }
 
@@ -54,7 +55,7 @@ where
     A: ToSocketAddrs,
     P: Protocol,
 {
-    pub fn connect(self) -> io::Result<Client<TcpStream, P>> {
+    pub fn connect(self) -> Result<Client<TcpStream, P>> {
         let mut stream = TcpStream::connect(self.addr)?;
 
         let connect = self.connect;
@@ -94,44 +95,38 @@ where
 
                         Connector { addr, connect }.connect()
                     } else {
-                        Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            connect_ack.return_code,
-                        ))
+                        Err(connect_ack.return_code).context("connect")
                     }
                 }
-                code => Err(io::Error::new(io::ErrorKind::Other, code)),
+                code => Err(code).context("connect"),
             },
-            Packet::Disconnect(disconnect) => match disconnect.reason_code.unwrap_or_default() {
-                ReasonCode::UseAnotherServer | ReasonCode::ServerMoved => {
-                    if let Some(addr) = disconnect.properties.as_ref().and_then(|props| {
-                        props.iter().find_map(|prop| {
-                            if let Property::ServerReference(server) = prop {
-                                Some(server)
-                            } else {
-                                None
-                            }
-                        })
-                    }) {
-                        info!("redirect to {}", addr);
+            Packet::Disconnect(disconnect) => {
+                if let Some(code) = disconnect.reason_code {
+                    match code {
+                        ReasonCode::UseAnotherServer | ReasonCode::ServerMoved => {
+                            if let Some(addr) = disconnect.properties.as_ref().and_then(|props| {
+                                props.iter().find_map(|prop| {
+                                    if let Property::ServerReference(server) = prop {
+                                        Some(server)
+                                    } else {
+                                        None
+                                    }
+                                })
+                            }) {
+                                info!("redirect to {}", addr);
 
-                        Connector { addr, connect }.connect()
-                    } else {
-                        Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("connect rejected: {:#?}", disconnect.reason_code),
-                        ))
+                                Connector { addr, connect }.connect()
+                            } else {
+                                Err(code).context("connect rejected")
+                            }
+                        }
+                        _ => Err(code).context("connect rejected"),
                     }
+                } else {
+                    Err(anyhow!("connect rejected"))
                 }
-                code => Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("connect rejected: {:#?}", code),
-                )),
-            },
-            _ => Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("unexpected response: {:#?}", packet),
-            )),
+            }
+            _ => Err(anyhow!("unexpected response: {:#?}", packet)),
         }
     }
 }

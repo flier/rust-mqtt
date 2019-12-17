@@ -1,6 +1,7 @@
-use std::io;
 use std::marker::PhantomData;
 use std::time::Duration;
+
+use anyhow::Result;
 
 use crate::{
     framed::Framed,
@@ -37,7 +38,7 @@ where
         }
     }
 
-    pub fn disconnect(mut self) -> io::Result<()> {
+    pub fn disconnect(mut self) -> Result<()> {
         self.stream
             .send(Packet::Disconnect(Disconnect::<P>::default().into()))
     }

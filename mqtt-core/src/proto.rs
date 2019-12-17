@@ -17,93 +17,136 @@ pub enum ProtocolVersion {
 
 /// The result of an operation
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, Display)]
 pub enum ReasonCode {
     /// Granted QoS 0 [SUBACK]
+    #[display(fmt = "Granted QoS 0")]
     GrantedQoS0 = 0,
     /// Granted QoS 1 [SUBACK]
+    #[display(fmt = "Granted QoS 1")]
     GrantedQoS1 = 1,
     /// Granted QoS 2 [SUBACK]
+    #[display(fmt = "Granted QoS 2")]
     GrantedQoS2 = 2,
     /// Disconnect with Will Message [DISCONNECT]
+    #[display(fmt = "Disconnect with Will Message")]
     DisconnectWithWill = 0x04,
     /// No matching subscribers [PUBACK, PUBREC]
+    #[display(fmt = "No matching subscribers")]
     NoMatchingSubscribers = 0x10,
     /// No subscription existed [UNSUBACK]
+    #[display(fmt = "No subscription existed")]
     NoSubscriptionExisted = 0x11,
     /// Continue authentication [AUTH]
+    #[display(fmt = "Continue authentication")]
     ContinueAuthentication = 0x18,
     /// Re-authenticate [AUTH]
+    #[display(fmt = "Re-authenticate")]
     Reauthenticate = 0x19,
     /// Unspecified error [CONNACK, PUBACK, PUBREC, SUBACK, UNSUBACK, DISCONNECT]
+    #[display(fmt = "Unspecified error")]
     UnspecifiedError = 0x80,
     /// Malformed Packet [CONNACK, DISCONNECT]
+    #[display(fmt = "Malformed Packet")]
     MalformedPacket = 0x81,
     /// Protocol Error [CONNACK, DISCONNECT]
+    #[display(fmt = "Protocol Error")]
     ProtocolError = 0x82,
     /// Implementation specific error [CONNACK, PUBACK, PUBREC, SUBACK, UNSUBACK, DISCONNECT]
+    #[display(fmt = "Implementation specific error")]
     ImplementationSpecificError = 0x83,
     /// Unsupported Protocol Version [CONNACK]
+    #[display(fmt = "Unsupported Protocol Version")]
     UnsupportedProtocolVersion = 0x84,
     /// Client Identifier not valid [CONNACK]
+    #[display(fmt = "Client Identifier not valid")]
     ClientIdNotValid = 0x85,
     /// Bad User Name or Password [CONNACK]
+    #[display(fmt = "Bad User Name or Password")]
     BadUserNameOrPassword = 0x86,
     /// Not authorized [CONNACK, PUBACK, PUBREC, SUBACK, UNSUBACK, DISCONNECT]
+    #[display(fmt = "Not authorized")]
     NotAuthorized = 0x87,
     /// Server unavailable [CONNACK]
+    #[display(fmt = "Server unavailable")]
     ServerUnavailable = 0x88,
     /// Server busy [CONNACK, DISCONNECT]
+    #[display(fmt = "Server busy")]
     ServerBusy = 0x89,
     /// Banned [CONNACK]
+    #[display(fmt = "Banned")]
     Banned = 0x8A,
     /// Server shutting down [DISCONNECT]
+    #[display(fmt = "Server shutting down")]
     ServerShuttingDown = 0x8B,
     /// Bad authentication method [CONNACK, DISCONNECT]
+    #[display(fmt = "Bad authentication method")]
     BadAuthenticationMethod = 0x8C,
     /// Keep Alive timeout [DISCONNECT]
+    #[display(fmt = "Keep Alive timeout")]
     KeepAliveTimeout = 0x8D,
     /// Session taken over [DISCONNECT]
+    #[display(fmt = "Session taken over")]
     SessionTakenOver = 0x8E,
     /// Topic Filter invalid [SUBACK, UNSUBACK, DISCONNECT]
+    #[display(fmt = "Topic Filter invalid")]
     InvalidTopicFilter = 0x8F,
     /// Topic Name invalid [CONNACK, PUBACK, PUBREC, DISCONNECT]
+    #[display(fmt = "Topic Name invalid")]
     InvalidTopicName = 0x90,
     /// Packet Identifier in use [PUBACK, PUBREC, SUBACK, UNSUBACK]
+    #[display(fmt = "Packet Identifier in use")]
     PacketIdInUse = 0x91,
     /// Packet Identifier not found [PUBREL, PUBCOMP]
+    #[display(fmt = "Packet Identifier not found")]
     PacketIdNotFound = 0x92,
     /// Receive Maximum exceeded [DISCONNECT]
+    #[display(fmt = "Receive Maximum exceeded")]
     ReceiveMaximumExceeded = 0x93,
     /// Topic Alias invalid [DISCONNECT]
+    #[display(fmt = "Topic Alias invalid")]
     InvalidTopicAlias = 0x94,
     /// Packet too large [CONNACK, DISCONNECT]
+    #[display(fmt = "Packet too large")]
     PacketTooLarge = 0x95,
     /// Message rate too high [DISCONNECT]
+    #[display(fmt = "Message rate too high")]
     MessageRateTooHigh = 0x96,
     /// Quota exceeded [CONNACK, PUBACK, PUBREC, SUBACK, DISCONNECT]
+    #[display(fmt = "Quota exceeded")]
     QuotaExceeded = 0x97,
     /// Administrative action [DISCONNECT]
+    #[display(fmt = "Administrative action")]
     AdministrativeAction = 0x98,
     /// Payload format invalid [CONNACK, PUBACK, PUBREC, DISCONNECT]
+    #[display(fmt = "Payload format invalid")]
     InvalidPayloadFormat = 0x99,
     /// Retain not supported [CONNACK, DISCONNECT]
+    #[display(fmt = "Retain not supported")]
     RetainNotSupported = 0x9A,
     /// QoS not supported [CONNACK, DISCONNECT]
+    #[display(fmt = "QoS not supported")]
     QoSNotSupported = 0x9B,
     /// Use another server [CONNACK, DISCONNECT]
+    #[display(fmt = "Use another server")]
     UseAnotherServer = 0x9C,
     /// Server moved [CONNACK, DISCONNECT]
+    #[display(fmt = "Server moved")]
     ServerMoved = 0x9D,
     /// Shared Subscriptions not supported [SUBACK, DISCONNECT]
+    #[display(fmt = "Shared Subscriptions not supported")]
     SharedSubscriptionsNotSupported = 0x9E,
     /// Connection rate exceeded [CONNACK, DISCONNECT]
+    #[display(fmt = "Connection rate exceeded")]
     ConnectionRateExceeded = 0x9F,
     /// Maximum connect time [DISCONNECT]
+    #[display(fmt = "Maximum connect time")]
     MaximumConnectTime = 0xA0,
     /// Subscription Identifiers not supported [SUBACK, DISCONNECT]
+    #[display(fmt = "Subscription Identifiers not supported")]
     SubscriptionIdNotSupported = 0xA1,
     /// Wildcard Subscriptions not supported [SUBACK, DISCONNECT]
+    #[display(fmt = "Wildcard Subscriptions not supported")]
     WildcardSubscriptionsNotSupported = 0xA2,
 }
 
@@ -112,6 +155,8 @@ impl Default for ReasonCode {
         ReasonCode::Success
     }
 }
+
+impl StdError for ReasonCode {}
 
 #[allow(non_upper_case_globals)]
 impl ReasonCode {
@@ -244,18 +289,13 @@ pub enum ConnectReturnCode {
     NotAuthorized = 5,
 }
 
-impl StdError for ConnectReturnCode {}
-
-impl ConnectReturnCode {
-    /// Transforms the `ConnectReturnCode` into a `Result<(), ConnectReturnCode>`.
-    pub fn ok(self) -> Result<(), Self> {
-        if self == ConnectReturnCode::ConnectionAccepted {
-            Ok(())
-        } else {
-            Err(self)
-        }
+impl Default for ConnectReturnCode {
+    fn default() -> Self {
+        Self::ConnectionAccepted
     }
 }
+
+impl StdError for ConnectReturnCode {}
 
 /// Packet Identifier
 ///

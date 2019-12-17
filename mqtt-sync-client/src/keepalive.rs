@@ -1,6 +1,6 @@
-use std::io;
 use std::time::Duration;
 
+use anyhow::Result;
 use timer::{Guard, Timer};
 
 use crate::{
@@ -51,7 +51,7 @@ impl<R> Receiver for KeepAlive<R>
 where
     R: Receiver,
 {
-    fn receive(&mut self) -> io::Result<Packet> {
+    fn receive(&mut self) -> Result<Packet> {
         self.stream.receive()
     }
 }
@@ -60,7 +60,7 @@ impl<W> Sender for KeepAlive<W>
 where
     W: 'static + Sender + TryClone + Send,
 {
-    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()> {
+    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> Result<()> {
         self.stream.send(packet)?;
         self.reschedule_ping();
 

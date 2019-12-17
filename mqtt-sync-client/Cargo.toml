@@ -12,6 +12,7 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
+anyhow = "1.0"
 hexplay = "0.2"
 hostname = "0.2"
 bytes = "0.5"
