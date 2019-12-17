@@ -13,8 +13,8 @@ use crate::{
     mqtt::Subscription,
     packet::Packet,
     proto::{
-        Disconnect, Protocol, ServerProperties, Subscribe, Subscribed, Unsubscribe, Unsubscribed,
-        MQTT_V5,
+        Disconnect, Message, Protocol, ServerProperties, Subscribe, Subscribed, Unsubscribe,
+        Unsubscribed, MQTT_V5,
     },
 };
 
@@ -23,6 +23,7 @@ pub struct Client<T, P = MQTT_V5> {
     session_reused: bool,
     properties: ServerProperties,
     packet_id: AtomicU16,
+    pending_messages: Vec<Message>,
     phantom: PhantomData<P>,
 }
 
@@ -49,6 +50,7 @@ where
             session_reused,
             properties,
             packet_id: AtomicU16::new(1),
+            pending_messages: Vec::new(),
             phantom: PhantomData,
         }
     }
@@ -75,11 +77,14 @@ where
             Subscribe::<'a, P>::new(packet_id, subscriptions).into(),
         ))?;
 
-        match self.stream.receive()? {
-            Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
-                Ok(subscribe_ack.into())
+        loop {
+            match self.stream.receive()? {
+                Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
+                    return Ok(subscribe_ack.into())
+                }
+                Packet::Publish(publish) => self.pending_messages.push(publish.into()),
+                res => return Err(anyhow!("unexpected response: {:?}", res)),
             }
-            res => Err(anyhow!("unexpected response: {:?}", res)),
         }
     }
 
@@ -93,11 +98,16 @@ where
             Unsubscribe::<'a, P>::new(packet_id, topic_filters).into(),
         ))?;
 
-        match self.stream.receive()? {
-            Packet::UnsubscribeAck(unsubscribe_ack) if unsubscribe_ack.packet_id == packet_id => {
-                Ok(unsubscribe_ack.into())
+        loop {
+            match self.stream.receive()? {
+                Packet::UnsubscribeAck(unsubscribe_ack)
+                    if unsubscribe_ack.packet_id == packet_id =>
+                {
+                    return Ok(unsubscribe_ack.into())
+                }
+                Packet::Publish(publish) => self.pending_messages.push(publish.into()),
+                res => return Err(anyhow!("unexpected response: {:?}", res)),
             }
-            res => Err(anyhow!("unexpected response: {:?}", res)),
         }
     }
 }

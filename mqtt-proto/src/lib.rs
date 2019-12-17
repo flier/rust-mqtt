@@ -12,12 +12,14 @@ pub extern crate mqtt_core as mqtt;
 mod connect;
 mod disconnect;
 mod props;
+mod publish;
 mod subscribe;
 mod unsubscribe;
 
 pub use crate::connect::Connect;
 pub use crate::disconnect::Disconnect;
 pub use crate::props::ServerProperties;
+pub use crate::publish::{Message, Metadata};
 pub use crate::subscribe::{Subscribe, Subscribed};
 pub use crate::unsubscribe::{Unsubscribe, Unsubscribed};
 
