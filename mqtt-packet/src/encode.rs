@@ -3,8 +3,10 @@ use core::mem;
 use bytes::BufMut;
 use derive_more::Deref;
 
-use crate::mqtt::{ConnectReturnCode, PacketId, Property, ReasonCode};
-use crate::packet::*;
+use crate::{
+    mqtt::{ConnectReturnCode, PacketId, Property, ReasonCode},
+    packet::*,
+};
 
 const PROPERTY_ID_SIZE: usize = mem::size_of::<u8>();
 const LENGTH_FIELD_SIZE: usize = mem::size_of::<u16>();
@@ -568,13 +570,23 @@ struct UnsubscribeAck<'a>(&'a mqtt::UnsubscribeAck<'a>);
 
 impl WriteTo for UnsubscribeAck<'_> {
     fn size(&self) -> usize {
-        mem::size_of::<PacketId>() + self.properties.as_ref().map_or(0, |p| p.size())
+        mem::size_of::<PacketId>()
+            + self.properties.as_ref().map_or(0, |p| p.size())
+            + self.status.as_ref().map_or(0, |props| props.len())
     }
 
     fn write_to<T: BufMut>(&self, buf: &mut T) {
         buf.put_u16(self.packet_id);
         if let Some(ref props) = self.properties {
             props.write_to(buf);
+        }
+        if let Some(ref status) = self.status {
+            for code in status {
+                buf.put_u8(match *code {
+                    Ok(_) => RETURN_CODE_SUCCESS,
+                    Err(reason) => reason as u8,
+                })
+            }
         }
     }
 }
@@ -796,6 +808,7 @@ mod tests {
             Packet::UnsubscribeAck(mqtt::UnsubscribeAck {
                 packet_id: 0x4321,
                 properties: None,
+                status: None,
             }),
             b"\xb0\x02\x43\x21"
         );

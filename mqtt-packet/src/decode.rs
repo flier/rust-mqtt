@@ -551,7 +551,6 @@ fn subscribe<'a, E: ParseError<&'a [u8]>>(
 }
 
 const QOS_MASK: u8 = 0x3;
-const RETURN_CODE_FAILURE: u8 = 0x80;
 
 fn subscribe_ack<'a, E: ParseError<&'a [u8]>>(
     input: &'a [u8],
@@ -606,10 +605,21 @@ fn unsubscribe_ack<'a, E: ParseError<&'a [u8]>>(
         tuple((
             packet_id,
             cond(protocol_version >= ProtocolVersion::V5, properties),
+            cond(
+                protocol_version >= ProtocolVersion::V5,
+                many1(map(be_u8, |b| {
+                    if b == RETURN_CODE_SUCCESS {
+                        Ok(())
+                    } else {
+                        Err(unsafe { ReasonCode::from_unchecked(b) })
+                    }
+                })),
+            ),
         )),
-        |(packet_id, properties)| UnsubscribeAck {
+        |(packet_id, properties, status)| UnsubscribeAck {
             packet_id,
             properties,
+            status,
         },
     )(input)
 }
@@ -1083,6 +1093,7 @@ mod tests {
                 Packet::UnsubscribeAck(UnsubscribeAck {
                     packet_id: 0x4321,
                     properties: None,
+                    status: None,
                 })
             ))
         );

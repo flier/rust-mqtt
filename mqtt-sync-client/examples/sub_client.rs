@@ -98,6 +98,15 @@ struct Opt {
     #[structopt(short, long)]
     topic: Vec<String>,
 
+    /// A topic that will be unsubscribed from.
+    ///
+    /// This may be used on its own or in conjunction with the --topic option
+    /// and only makes sense when used in conjunction with --clean-session.
+    ///
+    /// If used with --topic then subscriptions will be processed before unsubscriptions.
+    #[structopt(short = "U", long)]
+    unsubscribe: Vec<String>,
+
     /// Suppress printing of topics that match the filter.
     /// This allows subscribing to a wildcard topic and only printing a partial set of the wildcard hierarchy.
     #[structopt(short = "T", long)]
@@ -202,12 +211,33 @@ where
 
     let mut client = connector.connect()?;
 
-    let subscribed = client.subscribe(opt.topic.iter().map(|s| (s.as_str(), opt.qos)))?;
+    if !opt.topic.is_empty() {
+        let subscribed = client.subscribe(opt.topic.iter().map(|s| (s.as_str(), opt.qos)))?;
 
-    for (topic_name, status) in opt.topic.iter().zip(subscribed) {
-        match status {
-            Ok(qos) => info!("{} subscribed as `{}`", topic_name, qos),
-            Err(reason) => warn!("fail to subscribe {}, {}", topic_name, reason),
+        if let Some(ref reason) = subscribed.reason {
+            info!("subscribe reason: {}", reason)
+        }
+
+        for (topic_name, status) in opt.topic.iter().zip(subscribed) {
+            match status {
+                Ok(qos) => info!("{} subscribed as `{}`", topic_name, qos),
+                Err(reason) => warn!("fail to subscribe `{}`, {}", topic_name, reason),
+            }
+        }
+    }
+
+    if !opt.unsubscribe.is_empty() {
+        let unsubscribed = client.unsubscribe(opt.unsubscribe.iter().map(|s| s.as_str()))?;
+
+        if let Some(ref reason) = unsubscribed.reason {
+            info!("unsubscribe reason: {}", reason)
+        }
+
+        for (topic_filter, status) in opt.unsubscribe.iter().zip(unsubscribed) {
+            match status {
+                Ok(_) => info!("{} unsubscribed", topic_filter),
+                Err(reason) => warn!("fail to subscribe `{}`, {}", topic_filter, reason),
+            }
         }
     }
 

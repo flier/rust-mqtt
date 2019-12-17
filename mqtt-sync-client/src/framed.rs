@@ -94,6 +94,12 @@ impl<R> Framed<R> {
             self.buffer.advance_mut(read);
         }
 
+        trace!(
+            "read {} bytes:\n{}",
+            read,
+            HexViewBuilder::new(&self.buffer[..read]).finish()
+        );
+
         if read == 0 {
             self.eof = true;
         }

@@ -12,7 +12,10 @@ use crate::{
     keepalive::KeepAlive,
     mqtt::Subscription,
     packet::Packet,
-    proto::{Disconnect, Protocol, ServerProperties, Subscribe, Subscribed, MQTT_V5},
+    proto::{
+        Disconnect, Protocol, ServerProperties, Subscribe, Subscribed, Unsubscribe, Unsubscribed,
+        MQTT_V5,
+    },
 };
 
 pub struct Client<T, P = MQTT_V5> {
@@ -75,6 +78,24 @@ where
         match self.stream.receive()? {
             Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
                 Ok(subscribe_ack.into())
+            }
+            res => Err(anyhow!("unexpected response: {:?}", res)),
+        }
+    }
+
+    pub fn unsubscribe<'a, I>(&mut self, topic_filters: I) -> Result<Unsubscribed>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let packet_id = self.next_packet_id();
+
+        self.stream.send(Packet::Unsubscribe(
+            Unsubscribe::<'a, P>::new(packet_id, topic_filters).into(),
+        ))?;
+
+        match self.stream.receive()? {
+            Packet::UnsubscribeAck(unsubscribe_ack) if unsubscribe_ack.packet_id == packet_id => {
+                Ok(unsubscribe_ack.into())
             }
             res => Err(anyhow!("unexpected response: {:?}", res)),
         }

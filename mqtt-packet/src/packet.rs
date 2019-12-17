@@ -5,6 +5,9 @@ use crate::mqtt::*;
 /// The Protocol Name of the protocol.
 pub const PROTOCOL_NAME: &[u8] = b"\x00\x04MQTT";
 
+pub const RETURN_CODE_SUCCESS: u8 = 0x00;
+pub const RETURN_CODE_FAILURE: u8 = 0x80;
+
 /// MQTT Control Packets
 #[derive(Clone, Debug, PartialEq)]
 pub enum Packet<'a> {

@@ -471,6 +471,8 @@ pub struct UnsubscribeAck<'a> {
     pub packet_id: PacketId,
     /// UnsubscribeAck properties
     pub properties: Option<Vec<Property<'a>>>,
+    /// The list of Reason Codes.
+    pub status: Option<Vec<Result<(), ReasonCode>>>,
 }
 
 /// Disconnect notification

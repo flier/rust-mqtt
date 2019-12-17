@@ -13,11 +13,13 @@ mod connect;
 mod disconnect;
 mod props;
 mod subscribe;
+mod unsubscribe;
 
 pub use crate::connect::Connect;
 pub use crate::disconnect::Disconnect;
 pub use crate::props::ServerProperties;
 pub use crate::subscribe::{Subscribe, Subscribed};
+pub use crate::unsubscribe::{Unsubscribe, Unsubscribed};
 
 use crate::mqtt::{Property, ProtocolVersion};
 
