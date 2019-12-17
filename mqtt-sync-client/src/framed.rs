@@ -6,7 +6,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use hexplay::HexViewBuilder;
 
 use crate::{
-    io::{ReadExt, TryClone, WriteExt},
+    io::{Receiver, Sender, TryClone},
     mqtt::ProtocolVersion,
     packet::{self, Packet},
 };
@@ -105,7 +105,7 @@ impl<R> Framed<R> {
     }
 }
 
-impl<R> ReadExt for Framed<R>
+impl<R> Receiver for Framed<R>
 where
     R: io::Read,
 {
@@ -122,9 +122,9 @@ where
     }
 }
 
-impl<W> WriteExt for Framed<W>
+impl<W> Sender for Framed<W>
 where
-    W: WriteExt,
+    W: Sender,
 {
     fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()> {
         self.inner.send(packet)

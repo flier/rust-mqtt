@@ -4,7 +4,7 @@ use std::time::Duration;
 use timer::{Guard, Timer};
 
 use crate::{
-    io::{ReadExt, TryClone, WriteExt},
+    io::{Receiver, Sender, TryClone},
     packet::Packet,
 };
 
@@ -17,7 +17,7 @@ pub struct KeepAlive<T> {
 
 impl<T> KeepAlive<T>
 where
-    T: 'static + WriteExt + TryClone + Send,
+    T: 'static + Sender + TryClone + Send,
 {
     pub fn new(stream: T, timeout: Option<Duration>) -> Self {
         let mut keepalive = KeepAlive {
@@ -27,42 +27,42 @@ where
             guard: None,
         };
 
-        keepalive.schedule_keepalive();
+        keepalive.reschedule_ping();
         keepalive
     }
 
-    fn schedule_keepalive(&mut self) {
+    fn reschedule_ping(&mut self) {
         self.guard = self.delay.map(|delay| {
             let mut stream = self.stream.try_clone().expect("stream");
 
-            self.timer.schedule_with_delay(delay, move || {
+            self.timer.schedule_repeating(delay, move || {
                 let res = stream.send(Packet::Ping);
 
                 match res {
-                    Ok(_) => {}
-                    Err(err) => {}
+                    Ok(_) => trace!("send ping @ {}", time::now().ctime()),
+                    Err(err) => debug!("send ping failed, {:?}", err),
                 }
             })
         });
     }
 }
 
-impl<R> ReadExt for KeepAlive<R>
+impl<R> Receiver for KeepAlive<R>
 where
-    R: ReadExt,
+    R: Receiver,
 {
     fn receive(&mut self) -> io::Result<Packet> {
         self.stream.receive()
     }
 }
 
-impl<W> WriteExt for KeepAlive<W>
+impl<W> Sender for KeepAlive<W>
 where
-    W: 'static + WriteExt + TryClone + Send,
+    W: 'static + Sender + TryClone + Send,
 {
     fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()> {
         self.stream.send(packet)?;
-        self.schedule_keepalive();
+        self.reschedule_ping();
 
         Ok(())
     }

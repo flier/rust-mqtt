@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::{
     framed::Framed,
-    io::{ReadExt, WriteExt},
+    io::{Receiver, Sender},
     mqtt::{ConnectReturnCode, Property, ReasonCode},
     packet::Packet,
     proto::{Protocol, MQTT_V5},

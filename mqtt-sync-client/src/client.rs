@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::{
     framed::Framed,
-    io::{TryClone, WriteExt},
+    io::{Sender, TryClone},
     keepalive::KeepAlive,
     packet::Packet,
     proto::{Disconnect, ServerProperties, MQTT_V5},
@@ -19,7 +19,7 @@ pub struct Client<T, P = MQTT_V5> {
 
 impl<T, P> Client<T, P>
 where
-    T: 'static + WriteExt + TryClone + Send,
+    T: 'static + Sender + TryClone + Send,
 {
     pub fn new(
         framed: Framed<T>,

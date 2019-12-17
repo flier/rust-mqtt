@@ -6,15 +6,15 @@ use hexplay::HexViewBuilder;
 
 use crate::packet::{Packet, WriteTo};
 
-pub trait ReadExt {
+pub trait Receiver {
     fn receive(&mut self) -> io::Result<Packet>;
 }
 
-pub trait WriteExt {
+pub trait Sender {
     fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()>;
 }
 
-impl<W> WriteExt for W
+impl<W> Sender for W
 where
     W: io::Write,
 {
