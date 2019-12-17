@@ -1,9 +1,11 @@
 #[macro_use]
 extern crate log;
 
+use std::fmt;
 use std::process;
 
 use anyhow::{anyhow, Result};
+use hexplay::HexViewBuilder;
 use structopt::StructOpt;
 use url::Url;
 
@@ -81,7 +83,7 @@ struct Opt {
 
     /// Disconnect and exit the program immediately after the given count of messages have been received.
     /// This may be useful in shell scripts where on a single status value is required, for example.
-    #[structopt(short = "C")]
+    #[structopt(short = "C", long)]
     count: Option<usize>,
 
     /// If this option is given, sub_client will exit immediately that all of its subscriptions have been acknowledged by the broker.
@@ -91,8 +93,24 @@ struct Opt {
     /// If this argument is given, messages that are received that have the retain bit set will not be printed.
     /// Messages with retain set are "stale", in that it is not known when they were originally published.
     /// When subscribing to a wildcard topic there may be a large number of retained messages. This argument suppresses their display.
-    #[structopt(short = "R")]
+    #[structopt(short = "R", long)]
     no_retain: bool,
+
+    /// If this argument is given, only messages that are received that have the retain bit set will be printed.
+    ///
+    /// Messages with retain set are "stale", in that it is not known when they were originally published.
+    /// With this argument in use, the receipt of the first non-stale message will cause the client to exit.
+    /// See also the --retain-as-published option.
+    #[structopt(long)]
+    retain_only: bool,
+
+    /// If this argument is given, the when `sub_client` receives a message with the retained bit set,
+    /// it will send a message to the broker to clear that retained message.
+    ///
+    /// This applies to all received messages except those that are filtered out by the -T option.
+    /// This option still takes effect even if -R is used. See also the --retain-as-published and --retained-only options.
+    #[structopt(long)]
+    remove_retained: bool,
 
     /// The MQTT topic to subscribe to.
     #[structopt(short, long)]
@@ -118,8 +136,15 @@ struct Opt {
 
     /// Do not append an end of line character to the payload when printing.
     /// This allows streaming of payload data from multiple messages directly to another application unmodified.
-    #[structopt(short = "N")]
+    #[structopt(short = "N", long)]
     no_eol: bool,
+
+    /// Print received messages verbosely.
+    ///
+    /// With this argument, messages will be printed as "topic payload".
+    /// When this argument is not given, the messages are printed as "payload".
+    #[structopt(short, long)]
+    verbose: bool,
 }
 
 fn parse_protocol_version(s: &str) -> Result<ProtocolVersion> {
@@ -241,7 +266,74 @@ where
         }
     }
 
+    if !opt.exit_after_subscribe {
+        for message in client
+            .messages()
+            .take(opt.count.unwrap_or(usize::max_value()))
+        {
+            match message {
+                Ok(message) => {
+                    if message.payload.is_empty() {
+                        continue;
+                    }
+                    if opt.remove_retained && message.retain {
+                        // mosquitto_publish(mosq, &last_mid, message->topic, 0, NULL, 1, true);
+                    }
+                    if opt.no_retain && message.retain {
+                        continue;
+                    }
+                    if opt.retain_only && !message.retain {
+                        continue;
+                    }
+
+                    print!(
+                        "{}",
+                        MessageFmt {
+                            message,
+                            verbose: opt.verbose,
+                            eol: !opt.no_eol,
+                        }
+                    )
+                }
+                Err(err) => warn!("fail to receive message: {}", err),
+            }
+        }
+    }
+
     client.disconnect()?;
 
     Ok(())
+}
+
+struct MessageFmt {
+    message: Message,
+    verbose: bool,
+    eol: bool,
+}
+
+impl fmt::Display for MessageFmt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.verbose {
+            f.write_fmt(format_args!("{} ", self.message.topic_name))?;
+        }
+        if !self.message.payload.is_empty() {
+            if self.verbose {
+                f.write_fmt(format_args!(
+                    "\n{}",
+                    HexViewBuilder::new(&self.message.payload).finish()
+                ))?;
+            } else {
+                for b in &self.message.payload {
+                    f.write_fmt(format_args!("{:x}", b))?;
+                }
+            }
+        } else if self.verbose {
+            f.write_str("(null)")?;
+        }
+        if self.eol {
+            f.write_str("\n")?;
+        }
+
+        Ok(())
+    }
 }

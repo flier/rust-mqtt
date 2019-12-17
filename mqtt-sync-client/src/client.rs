@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 use std::iter::IntoIterator;
 use std::marker::PhantomData;
@@ -23,7 +24,7 @@ pub struct Client<T, P = MQTT_V5> {
     session_reused: bool,
     properties: ServerProperties,
     packet_id: AtomicU16,
-    pending_messages: Vec<Message>,
+    pending_messages: VecDeque<Message>,
     phantom: PhantomData<P>,
 }
 
@@ -50,7 +51,7 @@ where
             session_reused,
             properties,
             packet_id: AtomicU16::new(1),
-            pending_messages: Vec::new(),
+            pending_messages: VecDeque::new(),
             phantom: PhantomData,
         }
     }
@@ -82,7 +83,7 @@ where
                 Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
                     return Ok(subscribe_ack.into())
                 }
-                Packet::Publish(publish) => self.pending_messages.push(publish.into()),
+                Packet::Publish(publish) => self.pending_messages.push_back(publish.into()),
                 res => return Err(anyhow!("unexpected response: {:?}", res)),
             }
         }
@@ -105,9 +106,44 @@ where
                 {
                     return Ok(unsubscribe_ack.into())
                 }
-                Packet::Publish(publish) => self.pending_messages.push(publish.into()),
+                Packet::Publish(publish) => self.pending_messages.push_back(publish.into()),
                 res => return Err(anyhow!("unexpected response: {:?}", res)),
             }
         }
+    }
+}
+
+impl<T, P> Client<T, P> {
+    pub fn messages(&mut self) -> Messages<T, P> {
+        Messages { client: self }
+    }
+}
+
+pub struct Messages<'a, T, P> {
+    client: &'a mut Client<T, P>,
+}
+
+impl<'a, T, P> Iterator for Messages<'a, T, P>
+where
+    T: io::Read,
+{
+    type Item = Result<Message>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.client
+            .pending_messages
+            .pop_front()
+            .map(Ok)
+            .or_else(|| {
+                Some(
+                    self.client
+                        .stream
+                        .receive()
+                        .and_then(|packet| match packet {
+                            Packet::Publish(publish) => Ok(publish.into()),
+                            res => Err(anyhow!("unexpected response: {:?}", res)),
+                        }),
+                )
+            })
     }
 }

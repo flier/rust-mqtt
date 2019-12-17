@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use bytes::Bytes;
@@ -6,14 +7,29 @@ use crate::mqtt::{PayloadFormat, Property, Publish, QoS, SubscriptionId};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Message {
-    topic_name: String,
-    metadata: Metadata,
-    payload: Bytes,
+    pub topic_name: String,
+    pub metadata: Metadata,
+    pub payload: Bytes,
+}
+
+impl Deref for Message {
+    type Target = Metadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.metadata
+    }
+}
+
+impl DerefMut for Message {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.metadata
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Metadata {
     pub qos: QoS,
+    pub retain: bool,
     pub content_type: Option<String>,
     pub correlation_data: Option<Bytes>,
     pub message_expiry: Option<Instant>,
@@ -28,6 +44,7 @@ impl<'a> From<Publish<'a>> for Message {
     fn from(publish: Publish<'a>) -> Self {
         let mut metadata = Metadata {
             qos: publish.qos,
+            retain: publish.retain,
             ..Metadata::default()
         };
 
