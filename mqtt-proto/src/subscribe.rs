@@ -6,23 +6,6 @@ use crate::{
     Protocol, MQTT_V5,
 };
 
-/// subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
-pub fn subscribe<'a, P, I, T>(packet_id: u16, subscriptions: I) -> Subscribe<'a, P>
-where
-    P: Protocol,
-    I: IntoIterator<Item = T>,
-    T: Into<Subscription<'a>>,
-{
-    Subscribe(
-        mqtt::Subscribe {
-            packet_id,
-            properties: P::default_properties(),
-            subscriptions: subscriptions.into_iter().map(|s| s.into()).collect(),
-        },
-        PhantomData,
-    )
-}
-
 /// Subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
 #[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
@@ -42,7 +25,30 @@ impl<'a, P> DerefMut for Subscribe<'a, P> {
     }
 }
 
+impl<'a, P> Into<mqtt::Subscribe<'a>> for Subscribe<'a, P> {
+    fn into(self) -> mqtt::Subscribe<'a> {
+        self.0
+    }
+}
+
 impl<'a, P> Subscribe<'a, P> {
+    /// subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
+    pub fn new<I, T>(packet_id: u16, subscriptions: I) -> Subscribe<'a, P>
+    where
+        P: Protocol,
+        I: IntoIterator<Item = T>,
+        T: Into<Subscription<'a>>,
+    {
+        Subscribe(
+            mqtt::Subscribe {
+                packet_id,
+                properties: P::default_properties(),
+                subscriptions: subscriptions.into_iter().map(|s| s.into()).collect(),
+            },
+            PhantomData,
+        )
+    }
+
     pub fn with_subscription<T: Into<Subscription<'a>>>(&mut self, subscription: T) -> &mut Self {
         self.subscriptions.push(subscription.into());
         self

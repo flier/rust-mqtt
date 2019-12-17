@@ -3,7 +3,7 @@ use core::mem;
 use bytes::BufMut;
 use derive_more::Deref;
 
-use crate::mqtt::{ConnectReturnCode, PacketId, Property, ReasonCode, SubscribeReturnCode};
+use crate::mqtt::{ConnectReturnCode, PacketId, Property, ReasonCode};
 use crate::packet::*;
 
 const PROPERTY_ID_SIZE: usize = mem::size_of::<u8>();
@@ -521,7 +521,7 @@ impl WriteTo for SubscribeAck<'_> {
     fn size(&self) -> usize {
         mem::size_of::<PacketId>()
             + self.properties.as_ref().map_or(0, |p| p.size())
-            + mem::size_of::<SubscribeReturnCode>() * self.status.iter().count()
+            + mem::size_of::<u8>() * self.status.iter().count()
     }
 
     fn write_to<T: BufMut>(&self, buf: &mut T) {
@@ -530,7 +530,10 @@ impl WriteTo for SubscribeAck<'_> {
             props.write_to(buf);
         }
         for &return_code in &self.status {
-            buf.put_u8(return_code.into())
+            buf.put_u8(match return_code {
+                Ok(qos) => qos as u8,
+                Err(reason) => reason as u8,
+            })
         }
     }
 }
@@ -772,9 +775,9 @@ mod tests {
                 packet_id: 0x1234,
                 properties: None,
                 status: vec![
-                    SubscribeReturnCode::Success(QoS::AtLeastOnce),
-                    SubscribeReturnCode::Failure,
-                    SubscribeReturnCode::Success(QoS::ExactlyOnce),
+                    Ok(QoS::AtLeastOnce),
+                    Err(ReasonCode::UnspecifiedError),
+                    Ok(QoS::ExactlyOnce),
                 ],
             }),
             b"\x90\x05\x12\x34\x01\x80\x02"

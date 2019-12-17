@@ -551,6 +551,7 @@ fn subscribe<'a, E: ParseError<&'a [u8]>>(
 }
 
 const QOS_MASK: u8 = 0x3;
+const RETURN_CODE_FAILURE: u8 = 0x80;
 
 fn subscribe_ack<'a, E: ParseError<&'a [u8]>>(
     input: &'a [u8],
@@ -563,10 +564,10 @@ fn subscribe_ack<'a, E: ParseError<&'a [u8]>>(
             many1(context(
                 "return code",
                 map(be_u8, |b| {
-                    if (b & SubscribeReturnCode::FAILURE) == 0 {
-                        SubscribeReturnCode::Success(unsafe { QoS::from_unchecked(b & QOS_MASK) })
+                    if (b & RETURN_CODE_FAILURE) == 0 {
+                        Ok(unsafe { QoS::from_unchecked(b & QOS_MASK) })
                     } else {
-                        SubscribeReturnCode::Failure
+                        Err(unsafe { ReasonCode::from_unchecked(b) })
                     }
                 }),
             )),
@@ -1025,9 +1026,9 @@ mod tests {
                     packet_id: 0x1234,
                     properties: None,
                     status: vec![
-                        SubscribeReturnCode::Success(QoS::AtLeastOnce),
-                        SubscribeReturnCode::Failure,
-                        SubscribeReturnCode::Success(QoS::ExactlyOnce),
+                        Ok(QoS::AtLeastOnce),
+                        Err(ReasonCode::UnspecifiedError),
+                        Ok(QoS::ExactlyOnce),
                     ],
                 }
             ))
@@ -1041,9 +1042,9 @@ mod tests {
                     packet_id: 0x1234,
                     properties: None,
                     status: vec![
-                        SubscribeReturnCode::Success(QoS::AtLeastOnce),
-                        SubscribeReturnCode::Failure,
-                        SubscribeReturnCode::Success(QoS::ExactlyOnce),
+                        Ok(QoS::AtLeastOnce),
+                        Err(ReasonCode::UnspecifiedError),
+                        Ok(QoS::ExactlyOnce),
                     ],
                 })
             ))

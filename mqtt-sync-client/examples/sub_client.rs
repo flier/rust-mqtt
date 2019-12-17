@@ -202,6 +202,15 @@ where
 
     let mut client = connector.connect()?;
 
+    let subscribed = client.subscribe(opt.topic.iter().map(|s| (s.as_str(), opt.qos)))?;
+
+    for (topic_name, status) in opt.topic.iter().zip(subscribed) {
+        match status {
+            Ok(qos) => info!("{} subscribed as `{}`", topic_name, qos),
+            Err(reason) => warn!("fail to subscribe {}, {}", topic_name, reason),
+        }
+    }
+
     client.disconnect()?;
 
     // let client = connect()

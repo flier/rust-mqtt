@@ -17,7 +17,7 @@ pub enum ProtocolVersion {
 
 /// The result of an operation
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, Display)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, UnsafeFromPrimitive, Display)]
 pub enum ReasonCode {
     /// Granted QoS 0 [SUBACK]
     #[display(fmt = "Granted QoS 0")]
@@ -450,29 +450,7 @@ pub struct SubscribeAck<'a> {
     /// SubscribeAck properties
     pub properties: Option<Vec<Property<'a>>>,
     /// corresponds to a Topic Filter in the SUBSCRIBE Packet being acknowledged.
-    pub status: Vec<SubscribeReturnCode>,
-}
-
-/// Subscribe Return Code
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum SubscribeReturnCode {
-    /// Success
-    Success(QoS),
-    /// Failure
-    Failure,
-}
-
-impl SubscribeReturnCode {
-    pub const FAILURE: u8 = 0x80;
-}
-
-impl From<SubscribeReturnCode> for u8 {
-    fn from(code: SubscribeReturnCode) -> u8 {
-        match code {
-            SubscribeReturnCode::Success(qos) => qos as u8,
-            SubscribeReturnCode::Failure => SubscribeReturnCode::FAILURE,
-        }
-    }
+    pub status: Vec<Result<QoS, ReasonCode>>,
 }
 
 /// Unsubscribe request
