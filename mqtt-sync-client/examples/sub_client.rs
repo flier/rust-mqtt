@@ -213,10 +213,5 @@ where
 
     client.disconnect()?;
 
-    // let client = connect()
-    // let session = c.handshake::<P>(opt)?;
-
-    // session.disconnect()?;
-
     Ok(())
 }

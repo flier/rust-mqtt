@@ -1,6 +1,6 @@
 use std::io;
+use std::iter::IntoIterator;
 use std::marker::PhantomData;
-use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
@@ -10,9 +10,9 @@ use crate::{
     framed::Framed,
     io::{Receiver, Sender, TryClone},
     keepalive::KeepAlive,
-    mqtt::{QoS, ReasonCode, Subscription},
+    mqtt::Subscription,
     packet::Packet,
-    proto::{Disconnect, Protocol, ServerProperties, Subscribe, MQTT_V5},
+    proto::{Disconnect, Protocol, ServerProperties, Subscribe, Subscribed, MQTT_V5},
 };
 
 pub struct Client<T, P = MQTT_V5> {
@@ -61,10 +61,7 @@ where
     T: 'static + io::Write + io::Read + TryClone + Send,
     P: Protocol,
 {
-    pub fn subscribe<'a, I, S>(
-        &mut self,
-        subscriptions: I,
-    ) -> Result<Vec<StdResult<QoS, ReasonCode>>>
+    pub fn subscribe<'a, I, S>(&mut self, subscriptions: I) -> Result<Subscribed>
     where
         I: IntoIterator<Item = S>,
         S: Into<Subscription<'a>>,
@@ -77,7 +74,7 @@ where
 
         match self.stream.receive()? {
             Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
-                Ok(subscribe_ack.status)
+                Ok(subscribe_ack.into())
             }
             res => Err(anyhow!("unexpected response: {:?}", res)),
         }

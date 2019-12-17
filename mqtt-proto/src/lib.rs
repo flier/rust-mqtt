@@ -17,7 +17,7 @@ mod subscribe;
 pub use crate::connect::Connect;
 pub use crate::disconnect::Disconnect;
 pub use crate::props::ServerProperties;
-pub use crate::subscribe::Subscribe;
+pub use crate::subscribe::{Subscribe, Subscribed};
 
 use crate::mqtt::{Property, ProtocolVersion};
 
