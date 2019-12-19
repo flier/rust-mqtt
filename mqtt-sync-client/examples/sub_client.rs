@@ -267,8 +267,10 @@ where
     }
 
     if !opt.exit_after_subscribe {
-        for message in client
-            .messages()
+        let mut messages = client.messages();
+
+        for message in messages
+            .by_ref()
             .take(opt.count.unwrap_or(usize::max_value()))
         {
             match message {
@@ -298,6 +300,8 @@ where
                 Err(err) => warn!("fail to receive message: {}", err),
             }
         }
+
+        client = messages.into();
     }
 
     client.disconnect()?;
@@ -305,13 +309,13 @@ where
     Ok(())
 }
 
-struct MessageFmt {
-    message: Message,
+struct MessageFmt<'a> {
+    message: Message<'a>,
     verbose: bool,
     eol: bool,
 }
 
-impl fmt::Display for MessageFmt {
+impl<'a> fmt::Display for MessageFmt<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.verbose {
             f.write_fmt(format_args!("{} ", self.message.topic_name))?;
@@ -323,7 +327,7 @@ impl fmt::Display for MessageFmt {
                     HexViewBuilder::new(&self.message.payload).finish()
                 ))?;
             } else {
-                for b in &self.message.payload {
+                for b in self.message.payload.iter() {
                     f.write_fmt(format_args!("{:x}", b))?;
                 }
             }

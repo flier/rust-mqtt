@@ -7,7 +7,6 @@ use crate::{
 };
 
 /// An UNSUBSCRIBE packet is sent by the Client to the Server, to unsubscribe from topics.
-#[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unsubscribe<'a, P>(mqtt::Unsubscribe<'a>, PhantomData<P>);
 
@@ -67,44 +66,45 @@ impl<'a> Unsubscribe<'a, MQTT_V5> {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct Unsubscribed {
     pub status: Vec<Result<(), ReasonCode>>,
     pub reason: Option<String>,
-    pub user_properties: Option<Vec<(String, String)>>,
+    pub user_properties: Vec<(String, String)>,
+}
+
+impl Unsubscribed {
+    pub fn new<'a, S, I>(status: S, properties: I) -> Self
+    where
+        S: IntoIterator<Item = Result<(), ReasonCode>>,
+        I: IntoIterator<Item = Property<'a>>,
+    {
+        properties.into_iter().fold(
+            Unsubscribed {
+                status: status.into_iter().collect(),
+                ..Default::default()
+            },
+            |mut subscribed, prop| {
+                match prop {
+                    Property::Reason(reason) => subscribed.reason = Some(reason.to_string()),
+                    Property::UserProperty(name, value) => subscribed
+                        .user_properties
+                        .push((name.to_string(), value.to_string())),
+                    _ => {}
+                }
+
+                subscribed
+            },
+        )
+    }
 }
 
 impl<'a> From<mqtt::UnsubscribeAck<'a>> for Unsubscribed {
     fn from(unsubscribe_ack: mqtt::UnsubscribeAck) -> Self {
-        Unsubscribed {
-            status: unsubscribe_ack.status.unwrap_or_default(),
-            reason: unsubscribe_ack.properties.as_ref().and_then(|props| {
-                props.iter().find_map(|prop| {
-                    if let Property::Reason(reason) = prop {
-                        Some(reason.to_string())
-                    } else {
-                        None
-                    }
-                })
-            }),
-            user_properties: unsubscribe_ack.properties.as_ref().and_then(|props| {
-                let user_props = props
-                    .iter()
-                    .flat_map(|prop| {
-                        if let Property::UserProperty(name, value) = prop {
-                            Some((name.to_string(), value.to_string()))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if user_props.is_empty() {
-                    None
-                } else {
-                    Some(user_props)
-                }
-            }),
-        }
+        Unsubscribed::new(
+            unsubscribe_ack.status.into_iter().flatten(),
+            unsubscribe_ack.properties.into_iter().flatten(),
+        )
     }
 }
 

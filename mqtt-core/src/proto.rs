@@ -17,7 +17,9 @@ pub enum ProtocolVersion {
 
 /// The result of an operation
 #[repr(u8)]
-#[derive(Debug, Eq, PartialEq, Clone, Copy, TryFromPrimitive, UnsafeFromPrimitive, Display)]
+#[derive(
+    Debug, Eq, PartialEq, PartialOrd, Clone, Copy, TryFromPrimitive, UnsafeFromPrimitive, Display,
+)]
 pub enum ReasonCode {
     /// Granted QoS 0 [SUBACK]
     #[display(fmt = "Granted QoS 0")]

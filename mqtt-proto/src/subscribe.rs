@@ -2,12 +2,11 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
 use crate::{
-    mqtt::{Property, QoS, ReasonCode, Subscription, SubscriptionId},
+    mqtt::{PacketId, Property, QoS, ReasonCode, Subscription, SubscriptionId},
     Protocol, MQTT_V5,
 };
 
 /// Subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
-#[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Subscribe<'a, P>(mqtt::Subscribe<'a>, PhantomData<P>);
 
@@ -33,7 +32,7 @@ impl<'a, P> Into<mqtt::Subscribe<'a>> for Subscribe<'a, P> {
 
 impl<'a, P> Subscribe<'a, P> {
     /// subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
-    pub fn new<I, T>(packet_id: u16, subscriptions: I) -> Subscribe<'a, P>
+    pub fn new<I, T>(packet_id: PacketId, subscriptions: I) -> Subscribe<'a, P>
     where
         P: Protocol,
         I: IntoIterator<Item = T>,
@@ -73,44 +72,45 @@ impl<'a> Subscribe<'a, MQTT_V5> {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct Subscribed {
     pub status: Vec<Result<QoS, ReasonCode>>,
     pub reason: Option<String>,
-    pub user_properties: Option<Vec<(String, String)>>,
+    pub user_properties: Vec<(String, String)>,
+}
+
+impl Subscribed {
+    pub fn new<'a, S, I>(status: S, properties: I) -> Subscribed
+    where
+        S: IntoIterator<Item = Result<QoS, ReasonCode>>,
+        I: IntoIterator<Item = Property<'a>>,
+    {
+        properties.into_iter().fold(
+            Subscribed {
+                status: status.into_iter().collect(),
+                ..Default::default()
+            },
+            |mut subscribed, prop| {
+                match prop {
+                    Property::Reason(reason) => subscribed.reason = Some(reason.to_string()),
+                    Property::UserProperty(name, value) => subscribed
+                        .user_properties
+                        .push((name.to_string(), value.to_string())),
+                    _ => {}
+                }
+
+                subscribed
+            },
+        )
+    }
 }
 
 impl<'a> From<mqtt::SubscribeAck<'a>> for Subscribed {
-    fn from(subscribe_ack: mqtt::SubscribeAck) -> Self {
-        Subscribed {
-            status: subscribe_ack.status,
-            reason: subscribe_ack.properties.as_ref().and_then(|props| {
-                props.iter().find_map(|prop| {
-                    if let Property::Reason(reason) = prop {
-                        Some(reason.to_string())
-                    } else {
-                        None
-                    }
-                })
-            }),
-            user_properties: subscribe_ack.properties.as_ref().and_then(|props| {
-                let user_props = props
-                    .iter()
-                    .flat_map(|prop| {
-                        if let Property::UserProperty(name, value) = prop {
-                            Some((name.to_string(), value.to_string()))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if user_props.is_empty() {
-                    None
-                } else {
-                    Some(user_props)
-                }
-            }),
-        }
+    fn from(subscribe_ack: mqtt::SubscribeAck<'a>) -> Subscribed {
+        Subscribed::new(
+            subscribe_ack.status,
+            subscribe_ack.properties.into_iter().flatten(),
+        )
     }
 }
 

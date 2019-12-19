@@ -7,7 +7,6 @@ pub use crate::{
 };
 
 /// Disconnect notification
-#[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Disconnect<'a, P>(mqtt::Disconnect<'a>, PhantomData<P>);
 

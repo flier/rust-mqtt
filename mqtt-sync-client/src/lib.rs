@@ -10,6 +10,8 @@ mod connect;
 mod framed;
 mod io;
 mod keepalive;
+mod session;
 
 pub use self::client::Client;
 pub use self::connect::{connect, Connector};
+pub use self::session::Session;

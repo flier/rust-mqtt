@@ -19,7 +19,7 @@ mod unsubscribe;
 pub use crate::connect::Connect;
 pub use crate::disconnect::Disconnect;
 pub use crate::props::ServerProperties;
-pub use crate::publish::{Message, Metadata};
+pub use crate::publish::{Message, Metadata, Publish, Published};
 pub use crate::subscribe::{Subscribe, Subscribed};
 pub use crate::unsubscribe::{Unsubscribe, Unsubscribed};
 

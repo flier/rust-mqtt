@@ -13,7 +13,7 @@ use crate::{
     Client,
 };
 
-pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<Client<TcpStream, MQTT_V5>> {
+pub fn connect<'a, A: ToSocketAddrs>(addr: A) -> Result<Client<'a, TcpStream, MQTT_V5>> {
     Connector::<A>::new(addr).connect()
 }
 
@@ -55,7 +55,7 @@ where
     A: ToSocketAddrs,
     P: Protocol,
 {
-    pub fn connect(self) -> Result<Client<TcpStream, P>> {
+    pub fn connect(self) -> Result<Client<'a, TcpStream, P>> {
         let mut stream = TcpStream::connect(self.addr)?;
 
         let connect = self.connect;

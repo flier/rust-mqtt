@@ -3,12 +3,11 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
 use crate::{
-    mqtt::{Expiry, PayloadFormat, Property, QoS},
+    mqtt::{Expiry, PayloadFormat, Property, QoS, TopicAlias},
     Protocol, MQTT_V5,
 };
 
 /// Client request to connect to Server
-#[repr(transparent)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Connect<'a, P>(mqtt::Connect<'a>, PhantomData<P>);
 
@@ -132,7 +131,7 @@ impl<'a> Connect<'a, MQTT_V5> {
     ///
     /// This value indicates the highest value that the Client will accept as a Topic Alias sent by the Server.
     /// The Client uses this value to limit the number of Topic Aliases that it is willing to hold on this Connection.
-    pub fn with_topic_alias_maximum(&mut self, value: u16) -> &mut Self {
+    pub fn with_topic_alias_maximum(&mut self, value: TopicAlias) -> &mut Self {
         self.with_property(Property::TopicAliasMaximum(value))
     }
 

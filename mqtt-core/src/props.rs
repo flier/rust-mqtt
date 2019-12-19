@@ -104,9 +104,9 @@ pub enum Property<'a> {
     /// Receive Maximum [CONNECT, CONNACK]
     ReceiveMaximum(u16),
     /// Topic Alias Maximum [CONNECT, CONNACK]
-    TopicAliasMaximum(u16),
+    TopicAliasMaximum(TopicAlias),
     /// Topic Alias [PUBLISH]
-    TopicAlias(u16),
+    TopicAlias(TopicAlias),
     /// MaximumQoS [CONNACK]
     MaximumQoS(QoS),
     /// Retain Available [CONNACK]
@@ -194,3 +194,6 @@ pub type SubscriptionId = u32;
 pub const MIN_SUBSCRIPTION_ID: u32 = 1;
 /// The smallest value that can be represented by the Subscription Identifier.
 pub const MAX_SUBSCRIPTION_ID: u32 = 0x0FFF_FFFF;
+
+/// A Topic Alias is an integer value that is used to identify the Topic instead of using the Topic Name.
+pub type TopicAlias = u16;

@@ -2,7 +2,7 @@ use core::iter::{FromIterator, IntoIterator};
 use core::time::Duration;
 use std::vec::IntoIter;
 
-use crate::mqtt::{Expiry, PayloadFormat, Property, QoS};
+use crate::mqtt::{Expiry, PayloadFormat, Property, QoS, TopicAlias};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClientProperties {
@@ -87,7 +87,7 @@ pub struct ServerProperties {
     pub max_packet_size: Option<u32>,
     pub max_qos: Option<QoS>,
     pub max_receive_size: Option<u16>,
-    pub max_topic_alias: Option<u16>,
+    pub max_topic_alias: Option<TopicAlias>,
     pub session_expired: Option<Expiry>,
     pub supports_retained_messages: bool,
     pub supports_shared_subscriptions: bool,
@@ -105,7 +105,7 @@ impl ServerProperties {
         self.max_qos.unwrap_or(Self::MAX_QOS)
     }
 
-    pub fn max_topic_alias(&self) -> u16 {
+    pub fn max_topic_alias(&self) -> TopicAlias {
         self.max_topic_alias.unwrap_or(Self::MAX_TOPIC_ALIAS)
     }
 }
@@ -113,7 +113,7 @@ impl ServerProperties {
 impl ServerProperties {
     const MAX_RECEIVE_SIZE: u16 = 65535;
     const MAX_QOS: QoS = QoS::ExactlyOnce;
-    const MAX_TOPIC_ALIAS: u16 = 0;
+    const MAX_TOPIC_ALIAS: TopicAlias = 0;
 }
 
 impl Default for ServerProperties {
