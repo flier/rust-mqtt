@@ -190,10 +190,5 @@ impl Expiry {
 /// The Subscription Identifier is associated with any subscription created or modified as the result of this SUBSCRIBE packet.
 pub type SubscriptionId = u32;
 
-/// The largest value that can be represented by the Subscription Identifier.
-pub const MIN_SUBSCRIPTION_ID: u32 = 1;
-/// The smallest value that can be represented by the Subscription Identifier.
-pub const MAX_SUBSCRIPTION_ID: u32 = 0x0FFF_FFFF;
-
 /// A Topic Alias is an integer value that is used to identify the Topic instead of using the Topic Name.
 pub type TopicAlias = u16;

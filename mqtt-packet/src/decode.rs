@@ -180,6 +180,21 @@ fn subscription<'a, E: ParseError<&'a [u8]>>(
     )(input)
 }
 
+const MIN_SUBSCRIPTION_ID: SubscriptionId = 1;
+const MAX_SUBSCRIPTION_ID: SubscriptionId = 0x0FFF_FFFF;
+
+/// SubscriptionId representing the identifier of the subscription.
+fn subscription_id<'a, E: ParseError<&'a [u8]>>(
+    input: &'a [u8],
+) -> IResult<&'a [u8], SubscriptionId, E> {
+    context(
+        "packet id",
+        verify(map(varint, |id| id as SubscriptionId), |&id| {
+            MIN_SUBSCRIPTION_ID <= id && id <= MAX_SUBSCRIPTION_ID
+        }),
+    )(input)
+}
+
 fn packet_id<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], PacketId, E> {
     context("packet id", be_u16)(input)
 }
@@ -209,7 +224,7 @@ fn property<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], P
         PropertyId::ContentType => map(utf8_str, Property::ContentType)(input),
         PropertyId::ResponseTopic => map(utf8_str, Property::ResponseTopic)(input),
         PropertyId::CorrelationData => map(binary_data, Property::CorrelationData)(input),
-        PropertyId::SubscriptionId => map(varint, |n| Property::SubscriptionId(n as u32))(input),
+        PropertyId::SubscriptionId => map(subscription_id, Property::SubscriptionId)(input),
         PropertyId::SessionExpiryInterval => map(expiry, Property::SessionExpiryInterval)(input),
         PropertyId::AssignedClientId => map(utf8_str, Property::AssignedClientId)(input),
         PropertyId::ServerKeepAlive => map(
@@ -563,7 +578,7 @@ fn subscribe_ack<'a, E: ParseError<&'a [u8]>>(
             many1(context(
                 "return code",
                 map(be_u8, |b| {
-                    if (b & RETURN_CODE_FAILURE) == 0 {
+                    if b < ReasonCode::UnspecifiedError as u8 {
                         Ok(unsafe { QoS::from_unchecked(b & QOS_MASK) })
                     } else {
                         Err(unsafe { ReasonCode::from_unchecked(b) })
@@ -608,7 +623,7 @@ fn unsubscribe_ack<'a, E: ParseError<&'a [u8]>>(
             cond(
                 protocol_version >= ProtocolVersion::V5,
                 many1(map(be_u8, |b| {
-                    if b == RETURN_CODE_SUCCESS {
+                    if b == ReasonCode::Success as u8 {
                         Ok(())
                     } else {
                         Err(unsafe { ReasonCode::from_unchecked(b) })

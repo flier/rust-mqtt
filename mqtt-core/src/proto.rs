@@ -167,6 +167,11 @@ impl ReasonCode {
 
     /// Normal disconnection [DISCONNECT]
     pub const NormalDisconnection: Self = Self::Success;
+
+    /// successful completion of an operation.
+    pub fn is_successful(self) -> bool {
+        self < Self::UnspecifiedError
+    }
 }
 
 /// Quality of Service levels

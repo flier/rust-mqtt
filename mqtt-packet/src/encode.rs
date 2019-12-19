@@ -582,10 +582,7 @@ impl WriteTo for UnsubscribeAck<'_> {
         }
         if let Some(ref status) = self.status {
             for code in status {
-                buf.put_u8(match *code {
-                    Ok(_) => RETURN_CODE_SUCCESS,
-                    Err(reason) => reason as u8,
-                })
+                buf.put_u8(code.err().unwrap_or_default() as u8)
             }
         }
     }
