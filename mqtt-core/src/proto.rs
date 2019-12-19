@@ -333,6 +333,26 @@ pub struct Publish<'a> {
     pub payload: &'a [u8],
 }
 
+impl<'a> Publish<'a> {
+    /// Publish packet that is being acknowledged.
+    pub fn ack<'b>(&self) -> PublishAck<'b> {
+        PublishAck {
+            packet_id: self.packet_id.unwrap_or_default(),
+            reason_code: None,
+            properties: None,
+        }
+    }
+
+    /// Publish packet that is being received.
+    pub fn received<'b>(&self) -> PublishReceived<'b> {
+        PublishReceived {
+            packet_id: self.packet_id.unwrap_or_default(),
+            reason_code: None,
+            properties: None,
+        }
+    }
+}
+
 /// Publish acknowledgment
 #[derive(Clone, Debug, PartialEq)]
 pub struct PublishAck<'a> {
@@ -355,6 +375,17 @@ pub struct PublishReceived<'a> {
     pub properties: Option<Vec<Property<'a>>>,
 }
 
+impl<'a> PublishReceived<'a> {
+    /// Publish packet that is being released.
+    pub fn release<'b>(&self) -> PublishRelease<'b> {
+        PublishRelease {
+            packet_id: self.packet_id,
+            reason_code: None,
+            properties: None,
+        }
+    }
+}
+
 /// Publish release (assured delivery part 2)
 #[derive(Clone, Debug, PartialEq)]
 pub struct PublishRelease<'a> {
@@ -364,6 +395,17 @@ pub struct PublishRelease<'a> {
     pub reason_code: Option<ReasonCode>,
     /// PublishRelease properties
     pub properties: Option<Vec<Property<'a>>>,
+}
+
+impl<'a> PublishRelease<'a> {
+    /// Publish packet that is being completed.
+    pub fn complete<'b>(&self) -> PublishComplete<'b> {
+        PublishComplete {
+            packet_id: self.packet_id,
+            reason_code: None,
+            properties: None,
+        }
+    }
 }
 
 /// Publish complete (assured delivery part 3)

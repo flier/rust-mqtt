@@ -8,6 +8,7 @@ use crate::{
     framed::Framed,
     io::{Sender, TryClone},
     keepalive::KeepAlive,
+    mqtt::ReasonCode,
     proto::{Message, ServerProperties, MQTT_V5},
     session::Session,
 };
@@ -62,8 +63,8 @@ impl<'a, T, P> Client<'a, T, P>
 where
     T: 'static + Sender + TryClone + Send,
 {
-    pub fn disconnect(self) -> Result<()> {
-        self.session.disconnect()
+    pub fn disconnect(mut self) -> Result<()> {
+        self.session.disconnect(ReasonCode::Success)
     }
 }
 

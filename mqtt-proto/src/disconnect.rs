@@ -30,11 +30,34 @@ impl<'a, P> Into<mqtt::Disconnect<'a>> for Disconnect<'a, P> {
     }
 }
 
+#[cfg(feature = "packet")]
+impl<'a, P> From<Disconnect<'a, P>> for packet::Packet<'a> {
+    fn from(disconnect: Disconnect<'a, P>) -> packet::Packet<'a> {
+        disconnect.0.into()
+    }
+}
+
 impl<'a, P> Default for Disconnect<'a, P> {
     fn default() -> Self {
         Disconnect(
             mqtt::Disconnect {
                 reason_code: None,
+                properties: None,
+            },
+            PhantomData,
+        )
+    }
+}
+
+pub fn disconnect<'a, P>(reason_code: ReasonCode) -> Disconnect<'a, P> {
+    Disconnect::<P>::new(reason_code)
+}
+
+impl<'a, P> Disconnect<'a, P> {
+    pub fn new(reason_code: ReasonCode) -> Self {
+        Disconnect(
+            mqtt::Disconnect {
+                reason_code: Some(reason_code),
                 properties: None,
             },
             PhantomData,

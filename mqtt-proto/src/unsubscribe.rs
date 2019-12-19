@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
 use crate::{
-    mqtt::{Property, ReasonCode},
+    mqtt::{PacketId, Property, ReasonCode},
     Protocol, MQTT_V5,
 };
 
@@ -30,9 +30,25 @@ impl<'a, P> Into<mqtt::Unsubscribe<'a>> for Unsubscribe<'a, P> {
     }
 }
 
+#[cfg(feature = "packet")]
+impl<'a, P> From<Unsubscribe<'a, P>> for packet::Packet<'a> {
+    fn from(unsubscribe: Unsubscribe<'a, P>) -> packet::Packet<'a> {
+        unsubscribe.0.into()
+    }
+}
+
+// An UNSUBSCRIBE packet is sent by the Client to the Server, to unsubscribe from topics.
+pub fn unsubscribe<'a, P, I>(packet_id: PacketId, topic_filters: I) -> Unsubscribe<'a, P>
+where
+    P: Protocol,
+    I: IntoIterator<Item = &'a str>,
+{
+    Unsubscribe::new(packet_id, topic_filters)
+}
+
 impl<'a, P> Unsubscribe<'a, P> {
     /// An UNSUBSCRIBE packet is sent by the Client to the Server, to unsubscribe from topics.
-    pub fn new<I>(packet_id: u16, topic_filters: I) -> Unsubscribe<'a, P>
+    pub fn new<I>(packet_id: PacketId, topic_filters: I) -> Unsubscribe<'a, P>
     where
         P: Protocol,
         I: IntoIterator<Item = &'a str>,

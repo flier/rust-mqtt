@@ -1,3 +1,4 @@
+use derive_more::{From, TryInto};
 use num_enum::TryFromPrimitive;
 
 use crate::mqtt::*;
@@ -6,7 +7,7 @@ use crate::mqtt::*;
 pub const PROTOCOL_NAME: &[u8] = b"\x00\x04MQTT";
 
 /// MQTT Control Packets
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, From, TryInto)]
 pub enum Packet<'a> {
     /// Client request to connect to Server
     Connect(Connect<'a>),

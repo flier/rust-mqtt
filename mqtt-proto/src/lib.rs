@@ -8,6 +8,8 @@ extern crate log;
 // extern crate serde_derive;
 
 pub extern crate mqtt_core as mqtt;
+#[cfg(feature = "packet")]
+pub extern crate mqtt_packet as packet;
 
 mod connect;
 mod disconnect;
@@ -16,12 +18,12 @@ mod publish;
 mod subscribe;
 mod unsubscribe;
 
-pub use crate::connect::Connect;
-pub use crate::disconnect::Disconnect;
+pub use crate::connect::{connect, Connect};
+pub use crate::disconnect::{disconnect, Disconnect};
 pub use crate::props::ServerProperties;
-pub use crate::publish::{Message, Metadata, Publish, Published};
-pub use crate::subscribe::{Subscribe, Subscribed};
-pub use crate::unsubscribe::{Unsubscribe, Unsubscribed};
+pub use crate::publish::{publish, Message, Metadata, Publish, Published};
+pub use crate::subscribe::{subscribe, Subscribe, Subscribed};
+pub use crate::unsubscribe::{unsubscribe, Unsubscribe, Unsubscribed};
 
 use crate::mqtt::{Property, ProtocolVersion};
 

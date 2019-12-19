@@ -30,6 +30,23 @@ impl<'a, P> Into<mqtt::Subscribe<'a>> for Subscribe<'a, P> {
     }
 }
 
+#[cfg(feature = "packet")]
+impl<'a, P> From<Subscribe<'a, P>> for packet::Packet<'a> {
+    fn from(subscribe: Subscribe<'a, P>) -> packet::Packet<'a> {
+        subscribe.0.into()
+    }
+}
+
+/// subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
+pub fn subscribe<'a, P, I, T>(packet_id: PacketId, subscriptions: I) -> Subscribe<'a, P>
+where
+    P: Protocol,
+    I: IntoIterator<Item = T>,
+    T: Into<Subscription<'a>>,
+{
+    Subscribe::<P>::new(packet_id, subscriptions)
+}
+
 impl<'a, P> Subscribe<'a, P> {
     /// subscribe create one or more Subscriptions. Each Subscription registers a Client’s interest in one or more Topics.
     pub fn new<I, T>(packet_id: PacketId, subscriptions: I) -> Subscribe<'a, P>

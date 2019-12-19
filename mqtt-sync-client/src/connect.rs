@@ -44,7 +44,7 @@ where
     const DEFAULT_KEEPALIVE: Duration = Duration::from_secs(60);
 
     pub fn new(addr: A) -> Self {
-        let connect = proto::Connect::new(Some(Self::DEFAULT_KEEPALIVE), "");
+        let connect = proto::connect(Some(Self::DEFAULT_KEEPALIVE), "");
 
         Connector { addr, connect }
     }
@@ -59,7 +59,7 @@ where
         let mut stream = TcpStream::connect(self.addr)?;
 
         let connect = self.connect;
-        stream.send(Packet::Connect(connect.clone()))?;
+        stream.send(connect.clone())?;
 
         let mut framed = Framed::new(stream, P::VERSION);
 

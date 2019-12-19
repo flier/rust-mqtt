@@ -31,6 +31,21 @@ impl<'a, P> Into<mqtt::Connect<'a>> for Connect<'a, P> {
     }
 }
 
+#[cfg(feature = "packet")]
+impl<'a, P> From<Connect<'a, P>> for packet::Packet<'a> {
+    fn from(connect: Connect<'a, P>) -> packet::Packet<'a> {
+        connect.0.into()
+    }
+}
+
+/// Connect to an MQTT broker.
+pub fn connect<P>(keep_alive: Option<Duration>, client_id: &str) -> Connect<P>
+where
+    P: crate::Protocol,
+{
+    Connect::<P>::new(keep_alive, client_id)
+}
+
 impl<'a, P: Protocol> Connect<'a, P> {
     /// Connect to an MQTT broker.
     pub fn new(keep_alive: Option<Duration>, client_id: &str) -> Connect<P>

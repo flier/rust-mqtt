@@ -139,6 +139,20 @@ impl<'a, P> Into<mqtt::Publish<'a>> for Publish<'a, P> {
     }
 }
 
+#[cfg(feature = "packet")]
+impl<'a, P> From<Publish<'a, P>> for packet::Packet<'a> {
+    fn from(publish: Publish<'a, P>) -> packet::Packet<'a> {
+        publish.0.into()
+    }
+}
+
+pub fn publish<'a, P>(message: &'a Message) -> Publish<'a, P>
+where
+    P: Protocol,
+{
+    Publish::new(message)
+}
+
 impl<'a, P> Publish<'a, P> {
     pub fn new(message: &'a Message) -> Publish<'a, P>
     where

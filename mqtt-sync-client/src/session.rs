@@ -1,5 +1,6 @@
-use std::collections::vec_deque::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
+use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 use anyhow::{anyhow, Context, Result};
@@ -8,17 +9,21 @@ use crate::{
     io::{Receiver, Sender},
     mqtt::{PacketId, QoS, ReasonCode, Subscription},
     packet::Packet,
-    proto::{
-        Disconnect, Message, Protocol, Publish, Published, Subscribe, Subscribed, Unsubscribe,
-        Unsubscribed, MQTT_V5,
-    },
+    proto::{Message, Protocol, Published, Subscribed, Unsubscribed, MQTT_V5},
 };
 
 pub struct Session<'a, T, P = MQTT_V5> {
     stream: T,
     packet_id: AtomicU16,
-    pending_messages: VecDeque<Message<'a>>,
+    received_messages: VecDeque<Message<'a>>,
+    unacknowledged_messages: HashMap<PacketId, Unacknowledged<'a>>,
     phantom: PhantomData<P>,
+}
+
+enum Unacknowledged<'a> {
+    Published(Message<'a>),
+    Received(Message<'a>),
+    Released(Message<'a>),
 }
 
 impl<'a, T, P> Session<'a, T, P> {
@@ -26,7 +31,8 @@ impl<'a, T, P> Session<'a, T, P> {
         Session {
             stream,
             packet_id: AtomicU16::new(1),
-            pending_messages: VecDeque::new(),
+            received_messages: VecDeque::new(),
+            unacknowledged_messages: HashMap::new(),
             phantom: PhantomData,
         }
     }
@@ -40,40 +46,144 @@ impl<'a, T, P> Session<'a, T, P>
 where
     T: Sender,
 {
-    pub fn disconnect(mut self) -> Result<()> {
-        self.stream
-            .send(Packet::Disconnect(Disconnect::<P>::default().into()))
+    pub fn disconnect(&mut self, reason_code: ReasonCode) -> Result<()> {
+        self.stream.send(proto::disconnect::<P>(reason_code))
     }
 }
 
 impl<'a, T, P> Session<'a, T, P>
 where
-    T: Receiver,
+    T: Receiver + Sender,
 {
     fn wait_for<F, O>(&mut self, mut f: F) -> Result<O>
     where
         F: FnMut(Packet) -> Wait<O>,
         O: 'a,
     {
-        loop {
+        let res = loop {
             let packet = self.stream.receive()?;
 
-            match f(packet) {
-                Wait::Break(res) => return res,
+            let response: Option<Packet> = match f(packet) {
+                Wait::Break(res) => break res,
                 Wait::Continue(packet) => match packet {
                     Packet::Publish(publish) => {
-                        self.pending_messages
-                            .push_back(Message::from(publish).to_owned());
+                        let response = match publish.qos {
+                            QoS::AtMostOnce => None,
+                            QoS::AtLeastOnce => Some(publish.ack().into()),
+                            QoS::ExactlyOnce => Some(publish.received().into()),
+                        };
+                        let message = Message::from(publish).to_owned();
+
+                        self.received_messages.push_back(message);
+
+                        response
+                    }
+
+                    Packet::PublishAck(publish_ack) => {
+                        match self.unacknowledged_messages.remove(&publish_ack.packet_id) {
+                            Some(Unacknowledged::Published(message)) => {
+                                trace!(
+                                    "#{} message acknowledged: {:?}",
+                                    publish_ack.packet_id,
+                                    message
+                                );
+
+                                None
+                            }
+                            Some(_) => break Err(ReasonCode::ProtocolError),
+                            None => break Err(ReasonCode::PacketIdNotFound),
+                        }
+                    }
+
+                    Packet::PublishReceived(publish_received) => {
+                        match self
+                            .unacknowledged_messages
+                            .remove(&publish_received.packet_id)
+                        {
+                            Some(Unacknowledged::Published(message)) => {
+                                trace!(
+                                    "#{} message received: {:?}",
+                                    publish_received.packet_id,
+                                    message
+                                );
+
+                                self.unacknowledged_messages.insert(
+                                    publish_received.packet_id,
+                                    Unacknowledged::Received(message),
+                                );
+
+                                Some(publish_received.release().into())
+                            }
+                            Some(_) => break Err(ReasonCode::ProtocolError),
+                            None => break Err(ReasonCode::PacketIdNotFound),
+                        }
+                    }
+
+                    Packet::PublishRelease(publish_release) => {
+                        match self
+                            .unacknowledged_messages
+                            .remove(&publish_release.packet_id)
+                        {
+                            Some(Unacknowledged::Published(message)) => {
+                                trace!(
+                                    "#{} message released: {:?}",
+                                    publish_release.packet_id,
+                                    message
+                                );
+
+                                self.unacknowledged_messages.insert(
+                                    publish_release.packet_id,
+                                    Unacknowledged::Released(message),
+                                );
+
+                                Some(publish_release.complete().into())
+                            }
+                            Some(_) => break Err(ReasonCode::ProtocolError),
+                            None => break Err(ReasonCode::PacketIdNotFound),
+                        }
+                    }
+
+                    Packet::PublishComplete(publish_complete) => {
+                        match self
+                            .unacknowledged_messages
+                            .remove(&publish_complete.packet_id)
+                        {
+                            Some(Unacknowledged::Received(message)) => {
+                                trace!(
+                                    "#{} message completed: {:?}",
+                                    publish_complete.packet_id,
+                                    message
+                                );
+
+                                None
+                            }
+                            Some(_) => break Err(ReasonCode::ProtocolError),
+                            None => break Err(ReasonCode::PacketIdNotFound),
+                        }
                     }
 
                     Packet::Disconnect(disconnect) => {
-                        return Err(disconnect.reason_code.unwrap_or_default()).context("subscribe")
+                        break Err(disconnect.reason_code.unwrap_or_default())
                     }
 
-                    res => return Err(anyhow!("unexpected response: {:?}", res)),
+                    res => {
+                        warn!("unexpected packet: {:?}", res);
+
+                        break Err(ReasonCode::ProtocolError);
+                    }
                 },
+            };
+
+            if let Some(packet) = response {
+                self.stream.send(packet)?;
             }
+        };
+
+        if let Err(code) = res {
+            self.disconnect(code)?;
         }
+
+        res.context("wait_for")
     }
 }
 
@@ -84,7 +194,7 @@ where
     type Item = Result<Message<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.pending_messages.pop_front().map(Ok).or_else(|| {
+        self.received_messages.pop_front().map(Ok).or_else(|| {
             Some(self.stream.receive().and_then(|packet| match packet {
                 Packet::Publish(publish) => Ok(Message::from(publish).to_owned()),
                 res => Err(anyhow!("unexpected response: {:?}", res)),
@@ -94,7 +204,7 @@ where
 }
 
 enum Wait<'a, O> {
-    Break(Result<O>),
+    Break(StdResult<O, ReasonCode>),
     Continue(Packet<'a>),
 }
 
@@ -110,9 +220,8 @@ where
     {
         let packet_id = self.next_packet_id();
 
-        self.stream.send(Packet::Subscribe(
-            Subscribe::<'a, P>::new(packet_id, subscriptions).into(),
-        ))?;
+        self.stream
+            .send(proto::subscribe::<'a, P, _, _>(packet_id, subscriptions))?;
 
         self.wait_for(|packet| match packet {
             Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
@@ -128,9 +237,8 @@ where
     {
         let packet_id = self.next_packet_id();
 
-        self.stream.send(Packet::Unsubscribe(
-            Unsubscribe::<'a, P>::new(packet_id, topic_filters).into(),
-        ))?;
+        self.stream
+            .send(proto::unsubscribe::<P, _>(packet_id, topic_filters))?;
 
         self.wait_for(|packet| match packet {
             Packet::UnsubscribeAck(unsubscribe_ack) if unsubscribe_ack.packet_id == packet_id => {
@@ -140,41 +248,72 @@ where
         })
     }
 
-    pub fn publish(&mut self, message: Message) -> Result<Published> {
-        let mut publish = Publish::<P>::new(&message);
+    pub fn publish(&mut self, message: Message<'a>) -> Result<Published> {
+        let qos = message.qos;
+        let mut publish = proto::publish::<P>(&message);
 
-        let packet_id = if message.qos > QoS::AtMostOnce {
+        let packet_id = if qos > QoS::AtMostOnce {
             let packet_id = self.next_packet_id();
             publish.with_packet_id(packet_id);
-            Some(packet_id)
+            packet_id
         } else {
-            None
+            0
         };
 
-        self.stream.send(Packet::Publish(publish.into()))?;
+        self.stream.send(publish)?;
 
-        match message.qos {
+        match qos {
             QoS::AtMostOnce => Ok(Published::default()),
-            QoS::AtLeastOnce => self.wait_for(|packet| match packet {
-                Packet::PublishAck(publish_ack) if publish_ack.packet_id == packet_id.unwrap() => {
-                    Wait::Break(match publish_ack.reason_code.unwrap_or_default() {
-                        ReasonCode::Success => Ok(publish_ack.into()),
-                        code => Err(code).context("publish_ack"),
-                    })
-                }
-                _ => Wait::Continue(packet),
-            }),
-            QoS::ExactlyOnce => self.wait_for(|packet| match packet {
-                Packet::PublishReceived(publish_received)
-                    if publish_received.packet_id == packet_id.unwrap() =>
-                {
-                    Wait::Break(match publish_received.reason_code.unwrap_or_default() {
-                        ReasonCode::Success => Ok(publish_received.into()),
-                        code => Err(code).context("publish_received"),
-                    })
-                }
-                _ => Wait::Continue(packet),
-            }),
+            QoS::AtLeastOnce => {
+                self.unacknowledged_messages
+                    .insert(packet_id, Unacknowledged::Published(message));
+
+                self.wait_for(|packet| match packet {
+                    Packet::PublishAck(publish_ack) if publish_ack.packet_id == packet_id => {
+                        Wait::Break(match publish_ack.reason_code.unwrap_or_default() {
+                            ReasonCode::Success => Ok(publish_ack.into()),
+                            code => Err(code),
+                        })
+                    }
+                    _ => Wait::Continue(packet),
+                })
+            }
+            QoS::ExactlyOnce => {
+                self.unacknowledged_messages
+                    .insert(packet_id, Unacknowledged::Published(message));
+
+                self.wait_for(|packet| match packet {
+                    Packet::PublishReceived(publish_received)
+                        if publish_received.packet_id == packet_id =>
+                    {
+                        Wait::Break(match publish_received.reason_code.unwrap_or_default() {
+                            ReasonCode::Success => Ok(()),
+                            code => Err(code),
+                        })
+                    }
+                    _ => Wait::Continue(packet),
+                })?;
+
+                self.stream.send(mqtt::PublishRelease {
+                    packet_id,
+                    reason_code: None,
+                    properties: None,
+                })?;
+
+                self.wait_for(|packet| match packet {
+                    Packet::PublishComplete(publish_complete)
+                        if publish_complete.packet_id == packet_id =>
+                    {
+                        Wait::Break(match publish_complete.reason_code.unwrap_or_default() {
+                            ReasonCode::Success => Ok(()),
+                            code => Err(code),
+                        })
+                    }
+                    _ => Wait::Continue(packet),
+                })?;
+
+                Ok(Published::default())
+            }
         }
     }
 }
