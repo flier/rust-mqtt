@@ -2,6 +2,7 @@
 extern crate log;
 
 use std::fmt;
+use std::iter::repeat;
 use std::process;
 
 use anyhow::{anyhow, Result};
@@ -190,6 +191,24 @@ impl Opt {
             format!("{}{}", self.id_prefix, process::id())
         }
     }
+
+    fn has_topics(&self) -> bool {
+        !self.topic.is_empty() || self.url.as_ref().map_or(false, |url| url.path().len() > 1)
+    }
+
+    fn topics(&self) -> impl Iterator<Item = (&str, QoS)> {
+        self.topic
+            .iter()
+            .map(|s| s.as_str())
+            .chain(self.url.as_ref().map(|url| url.path()).and_then(|s| {
+                if s.len() > 1 {
+                    Some(s.trim_start_matches('/'))
+                } else {
+                    None
+                }
+            }))
+            .zip(repeat(self.qos))
+    }
 }
 
 fn main() -> Result<()> {
@@ -236,8 +255,8 @@ where
 
     let mut client = connector.connect()?;
 
-    if !opt.topic.is_empty() {
-        let subscribed = client.subscribe(opt.topic.iter().map(|s| (s.as_str(), opt.qos)))?;
+    if opt.has_topics() {
+        let subscribed = client.subscribe(opt.topics())?;
 
         if let Some(ref reason) = subscribed.reason {
             info!("subscribe reason: {}", reason)
