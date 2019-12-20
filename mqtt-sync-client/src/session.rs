@@ -162,6 +162,8 @@ where
                         }
                     }
 
+                    Packet::Pong => None,
+
                     Packet::Disconnect(disconnect) => {
                         break Err(disconnect.reason_code.unwrap_or_default())
                     }
