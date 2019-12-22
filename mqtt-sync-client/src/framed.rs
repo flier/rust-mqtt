@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 use core::slice;
 use std::io;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bytes::{Buf, BufMut, BytesMut};
 use hexplay::HexViewBuilder;
 
@@ -45,7 +45,7 @@ impl<R> Framed<R> {
         }
     }
 
-    fn parse_packet<'a, 'b: 'a>(&'a mut self) -> Result<Option<Packet<'b>>> {
+    fn parse_packet<'a, 'b: 'a>(&'a mut self) -> io::Result<Option<Packet<'b>>> {
         let input = self.buffer.bytes();
         let input = unsafe { slice::from_raw_parts(input.as_ptr(), input.len()) };
         let res = packet::parse(input, self.protocol_version);
@@ -64,7 +64,10 @@ impl<R> Framed<R> {
                 self.buffer.advance(read);
                 Ok(Some(packet))
             }
-            Err(err) if self.eof => Err(anyhow!("fail to parse packet, {:?}", err)),
+            Err(err) if self.eof => Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("fail to parse packet, {:?}", err),
+            )),
             _ => {
                 self.readable = false;
                 Ok(None)
@@ -113,7 +116,7 @@ impl<R> Receiver for Framed<R>
 where
     R: io::Read,
 {
-    fn receive(&mut self) -> Result<Packet> {
+    fn receive(&mut self) -> io::Result<Packet> {
         loop {
             if self.readable {
                 if let Some(packet) = self.parse_packet()? {
@@ -130,7 +133,7 @@ impl<W> Sender for Framed<W>
 where
     W: Sender,
 {
-    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> Result<()> {
+    fn send<'a, P: Into<Packet<'a>>>(&mut self, packet: P) -> io::Result<()> {
         self.inner.send(packet)
     }
 }

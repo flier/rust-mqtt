@@ -59,7 +59,7 @@ where
         let mut stream = TcpStream::connect(self.addr)?;
 
         let connect = self.connect;
-        stream.send(connect.clone())?;
+        stream.send(connect.clone()).context("connect")?;
 
         let mut framed = Framed::new(stream, P::VERSION);
 

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -46,8 +47,14 @@ impl<'a, T, P> Session<'a, T, P>
 where
     T: Sender,
 {
+    pub fn ping(&mut self) -> Result<()> {
+        self.stream.send(Packet::Ping).context("ping")
+    }
+
     pub fn disconnect(&mut self, reason_code: ReasonCode) -> Result<()> {
-        self.stream.send(proto::disconnect::<P>(reason_code))
+        self.stream
+            .send(proto::disconnect::<P>(reason_code))
+            .context("disconnect")
     }
 }
 
@@ -177,7 +184,7 @@ where
             };
 
             if let Some(packet) = response {
-                self.stream.send(packet)?;
+                self.stream.send(packet).context("publish")?;
             }
         };
 
@@ -196,12 +203,19 @@ where
     type Item = Result<Message<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.received_messages.pop_front().map(Ok).or_else(|| {
-            Some(self.stream.receive().and_then(|packet| match packet {
-                Packet::Publish(publish) => Ok(Message::from(publish).to_owned()),
-                res => Err(anyhow!("unexpected response: {:?}", res)),
-            }))
-        })
+        self.received_messages
+            .pop_front()
+            .map(Ok)
+            .or_else(|| match self.stream.receive() {
+                Ok(packet) => match packet {
+                    Packet::Publish(publish) => Some(Ok(Message::from(publish).to_owned())),
+                    Packet::Pong => self.next(),
+                    Packet::Disconnect(_) => None,
+                    res => Some(Err(anyhow!("unexpected response: {:?}", res))),
+                },
+                Err(err) if err.kind() == ErrorKind::UnexpectedEof => None,
+                Err(err) => Some(Err(err).context("messages")),
+            })
     }
 }
 
@@ -223,7 +237,8 @@ where
         let packet_id = self.next_packet_id();
 
         self.stream
-            .send(proto::subscribe::<'a, P, _, _>(packet_id, subscriptions))?;
+            .send(proto::subscribe::<'a, P, _, _>(packet_id, subscriptions))
+            .context("subscribe")?;
 
         self.wait_for(|packet| match packet {
             Packet::SubscribeAck(subscribe_ack) if subscribe_ack.packet_id == packet_id => {
@@ -240,7 +255,8 @@ where
         let packet_id = self.next_packet_id();
 
         self.stream
-            .send(proto::unsubscribe::<P, _>(packet_id, topic_filters))?;
+            .send(proto::unsubscribe::<P, _>(packet_id, topic_filters))
+            .context("unsubscribe")?;
 
         self.wait_for(|packet| match packet {
             Packet::UnsubscribeAck(unsubscribe_ack) if unsubscribe_ack.packet_id == packet_id => {
@@ -262,7 +278,7 @@ where
             0
         };
 
-        self.stream.send(publish)?;
+        self.stream.send(publish).context("publish")?;
 
         match qos {
             QoS::AtMostOnce => Ok(Published::default()),
